@@ -4,12 +4,11 @@ backend/__pycache__/
 backend/*.pyc
 backend/.env
 backend/*.db
-backend/*.pem
+backend/private_key.pem
 
 # Node
 frontend/node_modules/
 frontend/dist/
-frontend/.env
 
 # IDE
 .vscode/

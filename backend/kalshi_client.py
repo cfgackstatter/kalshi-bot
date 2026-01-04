@@ -1,19 +1,25 @@
 from kalshi_python_sync import KalshiClient
 from kalshi_python_sync.configuration import Configuration
 from pydantic_settings import BaseSettings, SettingsConfigDict
-import os
 
 class Settings(BaseSettings):
     kalshi_api_key: str
     kalshi_private_key_path: str
     kalshi_host: str = "https://api.elections.kalshi.com/trade-api/v2"
     
-    model_config = SettingsConfigDict(env_file=".env")
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
-settings = Settings()
+_settings = None
+
+def get_settings():
+    global _settings
+    if _settings is None:
+        _settings = Settings()
+    return _settings
 
 class KalshiTrader:
     def __init__(self):
+        settings = get_settings()
         with open(settings.kalshi_private_key_path, "r") as f:
             private_key = f.read()
         
