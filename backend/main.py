@@ -51,8 +51,15 @@ def get_markets(
     now = datetime.now(timezone.utc)
     
     for market in markets_response.markets:
-        # Parse market data
-        close_time = datetime.fromisoformat(market.close_time.replace('Z', '+00:00'))
+        # Parse market data - close_time might be datetime or string
+        close_time = market.close_time
+        if isinstance(close_time, str):
+            close_time = datetime.fromisoformat(close_time.replace('Z', '+00:00'))
+        
+        # Ensure close_time is timezone-aware
+        if close_time.tzinfo is None:
+            close_time = close_time.replace(tzinfo=timezone.utc)
+        
         days_left = (close_time - now).days
         
         yes_bid = market.yes_bid if hasattr(market, 'yes_bid') and market.yes_bid else 0
