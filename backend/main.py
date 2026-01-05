@@ -1,7 +1,5 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import Optional
 from datetime import datetime, timezone
 
 from kalshi_client import KalshiTrader
@@ -12,13 +10,6 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"])
 trader = KalshiTrader()
 
 
-class OrderRequest(BaseModel):
-    ticker: str
-    side: str          # "yes" or "no"
-    quantity: int
-    price: Optional[int] = None  # keep for later, but unused now
-
-
 @app.get("/api/balance")
 def get_balance():
     """Get account balance."""
@@ -27,40 +18,45 @@ def get_balance():
 
 @app.get("/api/markets")
 def get_markets():
-    """Get a simple list of markets (first 10)."""
-    markets_response = trader.get_markets(status="open", limit=50)
+    """Get all open markets with full details."""
+    markets_response = trader.get_markets(status="open", limit=100)
     markets = []
-
     now = datetime.now(timezone.utc)
 
-    for market in markets_response.markets[:10]:
+    for market in markets_response.markets:
         close_time = market.close_time
         if isinstance(close_time, str):
             close_time = datetime.fromisoformat(close_time.replace("Z", "+00:00"))
         if close_time.tzinfo is None:
             close_time = close_time.replace(tzinfo=timezone.utc)
 
-        days_left = (close_time - now).days
+        time_left = close_time - now
+        days = time_left.days
+        hours = time_left.seconds // 3600
+        minutes = (time_left.seconds % 3600) // 60
 
-        yes_bid = getattr(market, "yes_bid", 0) or 0
-        yes_ask = getattr(market, "yes_ask", 0) or 0
-
-        markets.append(
-            {
-                "ticker": market.ticker,
-                "title": getattr(market, "title", market.ticker),
-                "yes_bid": yes_bid,
-                "yes_ask": yes_ask,
-                "days_left": days_left,
-            }
-        )
+        markets.append({
+            "ticker": market.ticker,
+            "title": getattr(market, "title", market.ticker),
+            "category": getattr(market, "category", "Unknown"),
+            "yes_bid": getattr(market, "yes_bid", 0) or 0,
+            "yes_ask": getattr(market, "yes_ask", 0) or 0,
+            "no_bid": getattr(market, "no_bid", 0) or 0,
+            "no_ask": getattr(market, "no_ask", 0) or 0,
+            "volume": getattr(market, "volume", 0) or 0,
+            "open_interest": getattr(market, "open_interest", 0) or 0,
+            "close_time": close_time.isoformat(),
+            "days_left": days,
+            "hours_left": hours,
+            "minutes_left": minutes,
+        })
 
     return {"markets": markets, "count": len(markets)}
 
 
 @app.get("/api/positions")
 def get_positions():
-    """Get current positions with basic P&L."""
+    """Get current positions with P&L."""
     positions_response = trader.get_positions()
     positions = []
 
@@ -73,17 +69,15 @@ def get_positions():
         )
         pnl = position_value - cost_basis
 
-        positions.append(
-            {
-                "ticker": pos.ticker,
-                "side": getattr(pos, "side", "yes"),
-                "quantity": pos.position,
-                "avg_price": (pos.avg_price / 100) if hasattr(pos, "avg_price") else 0,
-                "current_price": (pos.market_price / 100)
-                if hasattr(pos, "market_price")
-                else 0,
-                "pnl": pnl,
-            }
-        )
+        positions.append({
+            "ticker": pos.ticker,
+            "side": getattr(pos, "side", "yes"),
+            "quantity": pos.position,
+            "avg_price": (pos.avg_price / 100) if hasattr(pos, "avg_price") else 0,
+            "current_price": (pos.market_price / 100)
+            if hasattr(pos, "market_price")
+            else 0,
+            "pnl": pnl,
+        })
 
     return {"positions": positions, "count": len(positions)}
