@@ -9,7 +9,6 @@ function App() {
   const [positions, setPositions] = useState([])
   const [loading, setLoading] = useState(false)
 
-  // Only fetch on mount, not on interval
   useEffect(() => {
     fetchData()
   }, [])
@@ -80,8 +79,7 @@ function App() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
             <thead style={{ position: 'sticky', top: 0, background: '#333', zIndex: 1 }}>
               <tr style={{ color: 'white', textAlign: 'left' }}>
-                <th style={{ padding: '8px', minWidth: '120px' }}>Ticker</th>
-                <th style={{ minWidth: '300px' }}>Title</th>
+                <th style={{ padding: '8px', minWidth: '350px' }}>Title</th>
                 <th style={{ minWidth: '80px' }}>Category</th>
                 <th>Yes Bid</th>
                 <th>Yes Ask</th>
@@ -94,18 +92,13 @@ function App() {
             </thead>
             <tbody>
               {markets.map(m => {
-                const yesSpread = m.yes_ask - m.yes_bid
-                const noSpread = m.no_ask - m.no_bid
                 const timeStr = m.days_left > 0 
                   ? `${m.days_left}d ${m.hours_left}h`
                   : `${m.hours_left}h ${m.minutes_left}m`
                 
                 return (
                   <tr key={m.ticker} style={{ borderBottom: '1px solid #eee' }}>
-                    <td style={{ padding: '8px', fontFamily: 'monospace', fontSize: '10px' }}>
-                      {m.ticker}
-                    </td>
-                    <td style={{ maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <td style={{ padding: '8px', maxWidth: '350px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {m.title}
                     </td>
                     <td style={{ fontSize: '11px', color: '#666' }}>{m.category}</td>
