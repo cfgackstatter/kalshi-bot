@@ -27,19 +27,23 @@ def get_balance():
 
 @app.get("/api/markets")
 def get_markets(
-    min_prob: Optional[float] = Query(None, ge=0, le=1),
-    max_prob: Optional[float] = Query(None, ge=0, le=1),
+    min_yes_ask: Optional[int] = Query(None, ge=0, le=100),
+    max_yes_ask: Optional[int] = Query(None, ge=0, le=100),
+    min_yes_bid: Optional[int] = Query(None, ge=0, le=100),
+    max_yes_bid: Optional[int] = Query(None, ge=0, le=100),
     max_days: Optional[int] = Query(None, ge=0),
-    category: Optional[str] = None
+    min_volume: Optional[int] = Query(None, ge=0)
 ):
     """
-    Get filtered markets.
+    Get filtered markets by raw API fields.
     
     Query params:
-        min_prob: Minimum yes probability (0-1)
-        max_prob: Maximum yes probability (0-1)
+        min_yes_ask: Minimum yes ask price in cents (for buying yes)
+        max_yes_ask: Maximum yes ask price in cents
+        min_yes_bid: Minimum yes bid price in cents
+        max_yes_bid: Maximum yes bid price in cents (for almost-sure bets)
         max_days: Maximum days until close
-        category: Market category filter
+        min_volume: Minimum volume (liquidity filter)
     """
     markets_response = trader.get_markets(status="open", limit=200)
     markets = []
@@ -51,26 +55,33 @@ def get_markets(
         close_time = datetime.fromisoformat(market.close_time.replace('Z', '+00:00'))
         days_left = (close_time - now).days
         
-        yes_prob = market.yes_bid / 100 if hasattr(market, 'yes_bid') and market.yes_bid else 0
+        yes_bid = market.yes_bid if hasattr(market, 'yes_bid') and market.yes_bid else 0
+        yes_ask = market.yes_ask if hasattr(market, 'yes_ask') and market.yes_ask else 0
+        volume = market.volume if hasattr(market, 'volume') else 0
         
-        # Apply filters
-        if min_prob and yes_prob < min_prob:
+        # Apply filters on raw API fields only
+        if min_yes_ask is not None and yes_ask < min_yes_ask:
             continue
-        if max_prob and yes_prob > max_prob:
+        if max_yes_ask is not None and yes_ask > max_yes_ask:
             continue
-        if max_days and days_left > max_days:
+        if min_yes_bid is not None and yes_bid < min_yes_bid:
             continue
-        if category and market.category != category:
+        if max_yes_bid is not None and yes_bid > max_yes_bid:
+            continue
+        if max_days is not None and days_left > max_days:
+            continue
+        if min_volume is not None and volume < min_volume:
             continue
         
         markets.append({
             "ticker": market.ticker,
             "title": market.title if hasattr(market, 'title') else market.ticker,
-            "yes_bid": market.yes_bid if hasattr(market, 'yes_bid') else 0,
-            "yes_ask": market.yes_ask if hasattr(market, 'yes_ask') else 0,
+            "yes_bid": yes_bid,
+            "yes_ask": yes_ask,
             "no_bid": market.no_bid if hasattr(market, 'no_bid') else 0,
             "no_ask": market.no_ask if hasattr(market, 'no_ask') else 0,
-            "volume": market.volume if hasattr(market, 'volume') else 0,
+            "volume": volume,
+            "open_interest": market.open_interest if hasattr(market, 'open_interest') else 0,
             "close_time": close_time.isoformat(),
             "days_left": days_left,
             "category": market.category if hasattr(market, 'category') else "Unknown"

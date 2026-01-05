@@ -1,6 +1,7 @@
 from kalshi_python_sync import KalshiClient
 from kalshi_python_sync.configuration import Configuration
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import Optional
 
 
 class Settings(BaseSettings):
@@ -41,7 +42,7 @@ class KalshiTrader:
         """Get all current positions."""
         return self.client.get_positions()
     
-    def create_order(self, ticker: str, side: str, quantity: int, price: int = None):
+    def create_order(self, ticker: str, side: str, quantity: int, price: Optional[int] = None):
         """
         Create an order (limit or market).
         
@@ -51,7 +52,7 @@ class KalshiTrader:
             quantity: Number of contracts
             price: Price in cents (1-99). If None, uses market order
         """
-        order_type = "limit" if price else "market"
+        order_type = "limit" if price is not None else "market"
         
         params = {
             "ticker": ticker,
@@ -61,7 +62,7 @@ class KalshiTrader:
             "type": order_type
         }
         
-        if price:
+        if price is not None:
             params["yes_price"] = price if side == "yes" else None
             params["no_price"] = price if side == "no" else None
         
