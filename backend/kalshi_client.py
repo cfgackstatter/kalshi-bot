@@ -12,7 +12,7 @@ class Settings(BaseSettings):
 
 
 def get_settings() -> Settings:
-    """Load settings from .env file. Cached after first call."""
+    """Load settings from .env file."""
     return Settings()  # type: ignore[call-arg]
 
 
@@ -29,23 +29,50 @@ class KalshiTrader:
         self.client = KalshiClient(config)
     
     def get_balance(self):
+        """Get account balance in dollars."""
         balance = self.client.get_balance()
         return {"balance": balance.balance / 100}
     
-    def get_markets(self, status="open", limit=100):
+    def get_markets(self, status="open", limit=200):
+        """Get all open markets."""
         return self.client.get_markets(status=status, limit=limit)
     
-    def get_market(self, ticker: str):
-        return self.client.get_market(ticker)
+    def get_positions(self):
+        """Get all current positions."""
+        return self.client.get_positions()
     
-    def place_order(self, ticker: str, action: str, side: str, count: int):
+    def create_order(self, ticker: str, side: str, quantity: int, price: int = None):
+        """
+        Create an order (limit or market).
+        
+        Args:
+            ticker: Market ticker (e.g., "EXAMPLE-YES")
+            side: "yes" or "no"
+            quantity: Number of contracts
+            price: Price in cents (1-99). If None, uses market order
+        """
+        order_type = "limit" if price else "market"
+        
+        params = {
+            "ticker": ticker,
+            "action": "buy",
+            "side": side,
+            "count": quantity,
+            "type": order_type
+        }
+        
+        if price:
+            params["yes_price"] = price if side == "yes" else None
+            params["no_price"] = price if side == "no" else None
+        
+        return self.client.create_order(**params)
+    
+    def close_position(self, ticker: str, side: str, quantity: int):
+        """Close a position (sell)."""
         return self.client.create_order(
             ticker=ticker,
-            action=action,
+            action="sell",
             side=side,
-            count=count,
+            count=quantity,
             type="market"
         )
-    
-    def get_positions(self):
-        return self.client.get_positions()
