@@ -2,6 +2,7 @@ from kalshi_python_sync import KalshiClient
 from kalshi_python_sync.configuration import Configuration
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+
 class Settings(BaseSettings):
     kalshi_api_key: str
     kalshi_private_key_path: str
@@ -9,13 +10,11 @@ class Settings(BaseSettings):
     
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
-_settings = None
 
-def get_settings():
-    global _settings
-    if _settings is None:
-        _settings = Settings()
-    return _settings
+def get_settings() -> Settings:
+    """Load settings from .env file. Cached after first call."""
+    return Settings()  # type: ignore[call-arg]
+
 
 class KalshiTrader:
     def __init__(self):
