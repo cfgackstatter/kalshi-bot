@@ -18,7 +18,7 @@ def get_balance():
 
 @app.get("/api/markets")
 def get_markets():
-    """Get all markets closing within 24 hours."""
+    """Get all markets closing within 24 hours, sorted by time remaining."""
     now = datetime.now(timezone.utc)
     max_close_time = now + timedelta(hours=24)
     max_close_ts = int(max_close_time.timestamp())
@@ -41,6 +41,7 @@ def get_markets():
         days = time_left.days
         hours = time_left.seconds // 3600
         minutes = (time_left.seconds % 3600) // 60
+        total_seconds = time_left.total_seconds()
 
         yes_bid = getattr(market, "yes_bid", 0) or 0
         yes_ask = getattr(market, "yes_ask", 0) or 0
@@ -65,7 +66,11 @@ def get_markets():
             "days_left": days,
             "hours_left": hours,
             "minutes_left": minutes,
+            "total_seconds_left": total_seconds,  # For sorting
         })
+
+    # Sort by time remaining (shortest first)
+    markets.sort(key=lambda m: m["total_seconds_left"])
 
     return {"markets": markets, "count": len(markets)}
 
