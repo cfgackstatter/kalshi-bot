@@ -35,14 +35,15 @@ function App() {
   const totalPnl = positions.reduce((sum, p) => sum + p.pnl, 0)
 
   return (
-    <div style={{ padding: '20px', fontFamily: 'system-ui', maxWidth: '1800px', margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <h1>Kalshi Viewer</h1>
+    <div style={{ padding: '15px', fontFamily: 'system-ui', maxWidth: '1800px', margin: '0 auto' }}>
+      {/* Compact Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+        <h1 style={{ margin: 0, fontSize: '24px' }}>Kalshi Viewer</h1>
         <button 
           onClick={fetchData} 
           disabled={loading}
           style={{ 
-            padding: '10px 20px', 
+            padding: '8px 16px', 
             background: loading ? '#ccc' : '#007bff', 
             color: 'white', 
             border: 'none', 
@@ -50,25 +51,21 @@ function App() {
             cursor: loading ? 'not-allowed' : 'pointer',
             fontWeight: 'bold'
           }}>
-          {loading ? 'Refreshing...' : 'Refresh Data'}
+          {loading ? 'Refreshing...' : 'Refresh'}
         </button>
       </div>
 
-      {/* Summary */}
-      <div style={{ display: 'flex', gap: '20px', marginBottom: '30px' }}>
+      {/* Compact Summary Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginBottom: '15px' }}>
         <Card title="Balance" value={`$${balance.toFixed(2)}`} />
-        <Card
-          title="Total P&L"
-          value={`$${totalPnl.toFixed(2)}`}
-          color={totalPnl >= 0 ? 'green' : 'red'}
-        />
+        <Card title="P&L" value={`$${totalPnl.toFixed(2)}`} color={totalPnl >= 0 ? 'green' : 'red'} />
         <Card title="Positions" value={positions.length} />
         <Card title="Markets" value={markets.length} />
       </div>
 
-      {/* Markets Table - Scrollable */}
-      <div style={{ marginBottom: '30px' }}>
-        <h2>Markets ({markets.length})</h2>
+      {/* Markets Table */}
+      <div style={{ marginBottom: '20px' }}>
+        <h2 style={{ fontSize: '18px', marginBottom: '8px' }}>Markets ({markets.length})</h2>
         <div style={{ 
           maxHeight: '500px', 
           overflowY: 'auto', 
@@ -98,9 +95,7 @@ function App() {
                 
                 return (
                   <tr key={m.ticker} style={{ borderBottom: '1px solid #eee' }}>
-                    <td style={{ padding: '8px', maxWidth: '350px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {m.title}
-                    </td>
+                    <td style={{ padding: '8px' }}>{m.title}</td>
                     <td style={{ fontSize: '11px', color: '#666' }}>{m.category}</td>
                     <td style={{ fontWeight: 'bold', color: '#28a745' }}>{m.yes_bid}¢</td>
                     <td style={{ fontWeight: 'bold', color: '#007bff' }}>{m.yes_ask}¢</td>
@@ -115,14 +110,11 @@ function App() {
             </tbody>
           </table>
         </div>
-        <p style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
-          Showing all {markets.length} open markets. Scroll to see more.
-        </p>
       </div>
 
       {/* Positions Table */}
       <div>
-        <h2>Open Positions ({positions.length})</h2>
+        <h2 style={{ fontSize: '18px', marginBottom: '8px' }}>Open Positions ({positions.length})</h2>
         <div style={{ 
           maxHeight: '300px', 
           overflowY: 'auto', 
@@ -171,9 +163,9 @@ function App() {
 }
 
 const Card = ({ title, value, color = 'black' }) => (
-  <div style={{ padding: '16px', background: 'white', border: '1px solid #ddd', borderRadius: '8px', flex: 1 }}>
-    <div style={{ fontSize: '14px', color: '#666', marginBottom: '6px' }}>{title}</div>
-    <div style={{ fontSize: '24px', fontWeight: 'bold', color }}>{value}</div>
+  <div style={{ padding: '12px', background: 'white', border: '1px solid #ddd', borderRadius: '4px' }}>
+    <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>{title}</div>
+    <div style={{ fontSize: '20px', fontWeight: 'bold', color }}>{value}</div>
   </div>
 )
 
