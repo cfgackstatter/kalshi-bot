@@ -1,7 +1,7 @@
 from kalshi_python_sync import KalshiClient
 from kalshi_python_sync.configuration import Configuration
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import Optional
+from typing import Optional, Iterator
 
 
 class Settings(BaseSettings):
@@ -34,23 +34,57 @@ class KalshiTrader:
         balance = self.client.get_balance()
         return {"balance": balance.balance / 100}
     
-    def get_markets(self, status="open", limit=200, max_close_ts: Optional[int] = None):
-        """Get markets, optionally filtered by close time."""
-        params = {"status": status, "limit": limit}
-        if max_close_ts is not None:
-            params["max_close_ts"] = max_close_ts
-        return self.client.get_markets(**params)
+    def get_all_markets(
+        self, 
+        status: str = "open", 
+        max_close_ts: Optional[int] = None
+    ) -> list:
+        """
+        Get all markets with automatic pagination.
+        
+        Args:
+            status: Market status filter (default "open")
+            max_close_ts: Filter markets closing before this Unix timestamp
+            
+        Returns:
+            List of all markets matching filters
+        """
+        all_markets = []
+        cursor = None
+        
+        while True:
+            params = {"status": status, "limit": 1000}
+            if max_close_ts is not None:
+                params["max_close_ts"] = max_close_ts
+            if cursor:
+                params["cursor"] = cursor
+            
+            response = self.client.get_markets(**params)
+            all_markets.extend(response.markets)
+            
+            # Check if there's a next page
+            cursor = getattr(response, "cursor", None)
+            if not cursor:
+                break
+        
+        return all_markets
     
     def get_positions(self):
         """Get all current positions."""
         return self.client.get_positions()
     
-    def create_order(self, ticker: str, side: str, quantity: int, price: Optional[int] = None):
+    def create_order(
+        self, 
+        ticker: str, 
+        side: str, 
+        quantity: int, 
+        price: Optional[int] = None
+    ):
         """
         Create an order (limit or market).
         
         Args:
-            ticker: Market ticker (e.g., "EXAMPLE-YES")
+            ticker: Market ticker
             side: "yes" or "no"
             quantity: Number of contracts
             price: Price in cents (1-99). If None, uses market order

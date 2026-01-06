@@ -18,20 +18,19 @@ def get_balance():
 
 @app.get("/api/markets")
 def get_markets():
-    """Get markets closing within 24 hours."""
+    """Get all markets closing within 24 hours."""
     now = datetime.now(timezone.utc)
     max_close_time = now + timedelta(hours=24)
     max_close_ts = int(max_close_time.timestamp())
     
-    # Fetch markets closing within 24 hours (server-side filter)
-    markets_response = trader.get_markets(
+    # Fetch ALL markets closing within 24 hours (automatic pagination)
+    all_markets = trader.get_all_markets(
         status="open", 
-        limit=200, 
         max_close_ts=max_close_ts
     )
+    
     markets = []
-
-    for market in markets_response.markets:
+    for market in all_markets:
         close_time = market.close_time
         if isinstance(close_time, str):
             close_time = datetime.fromisoformat(close_time.replace("Z", "+00:00"))
