@@ -76,7 +76,8 @@ function App() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
             <thead style={{ position: 'sticky', top: 0, background: '#333', zIndex: 1 }}>
               <tr style={{ color: 'white', textAlign: 'left' }}>
-                <th style={{ padding: '8px', minWidth: '350px' }}>Title</th>
+                <th style={{ padding: '8px', minWidth: '300px' }}>Title</th>
+                <th style={{ minWidth: '150px' }}>Subtitle</th>
                 <th style={{ minWidth: '80px' }}>Category</th>
                 <th>Yes Bid</th>
                 <th>Yes Ask</th>
@@ -96,6 +97,7 @@ function App() {
                 return (
                   <tr key={m.ticker} style={{ borderBottom: '1px solid #eee' }}>
                     <td style={{ padding: '8px' }}>{m.title}</td>
+                    <td style={{ fontSize: '11px', color: '#555' }}>{m.subtitle || '-'}</td>
                     <td style={{ fontSize: '11px', color: '#666' }}>{m.category}</td>
                     <td style={{ fontWeight: 'bold', color: '#28a745' }}>{m.yes_bid}¢</td>
                     <td style={{ fontWeight: 'bold', color: '#007bff' }}>{m.yes_ask}¢</td>

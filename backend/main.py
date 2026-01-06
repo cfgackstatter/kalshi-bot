@@ -23,13 +23,9 @@ def get_markets():
     max_close_time = now + timedelta(hours=24)
     max_close_ts = int(max_close_time.timestamp())
     
-    # Fetch ALL markets closing within 24 hours (automatic pagination)
-    all_markets = trader.get_all_markets(
-        status="open", 
-        max_close_ts=max_close_ts
-    )
-    
+    all_markets = trader.get_all_markets(status="open", max_close_ts=max_close_ts)
     markets = []
+    
     for market in all_markets:
         close_time = market.close_time
         if isinstance(close_time, str):
@@ -48,13 +44,13 @@ def get_markets():
         no_bid = getattr(market, "no_bid", 0) or 0
         no_ask = getattr(market, "no_ask", 0) or 0
 
-        # Skip markets where you can't trade (already resolved)
         if yes_ask >= 100 or yes_ask <= 0 or yes_bid >= 100 or yes_bid <= 0:
             continue
 
         markets.append({
             "ticker": market.ticker,
             "title": getattr(market, "title", market.ticker),
+            "subtitle": getattr(market, "subtitle", ""),
             "category": getattr(market, "category", "Unknown"),
             "yes_bid": yes_bid,
             "yes_ask": yes_ask,
@@ -66,12 +62,10 @@ def get_markets():
             "days_left": days,
             "hours_left": hours,
             "minutes_left": minutes,
-            "total_seconds_left": total_seconds,  # For sorting
+            "total_seconds_left": total_seconds,
         })
 
-    # Sort by time remaining (shortest first)
     markets.sort(key=lambda m: m["total_seconds_left"])
-
     return {"markets": markets, "count": len(markets)}
 
 
