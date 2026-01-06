@@ -35,8 +35,7 @@ function App() {
   const totalPnl = positions.reduce((sum, p) => sum + p.pnl, 0)
 
   return (
-    <div style={{ padding: '15px', fontFamily: 'system-ui', maxWidth: '1800px', margin: '0 auto' }}>
-      {/* Compact Header */}
+    <div style={{ padding: '15px', fontFamily: 'system-ui', maxWidth: '2000px', margin: '0 auto' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
         <h1 style={{ margin: 0, fontSize: '24px' }}>Kalshi Viewer</h1>
         <button 
@@ -55,7 +54,6 @@ function App() {
         </button>
       </div>
 
-      {/* Compact Summary Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginBottom: '15px' }}>
         <Card title="Balance" value={`$${balance.toFixed(2)}`} />
         <Card title="P&L" value={`$${totalPnl.toFixed(2)}`} color={totalPnl >= 0 ? 'green' : 'red'} />
@@ -63,7 +61,6 @@ function App() {
         <Card title="Markets" value={markets.length} />
       </div>
 
-      {/* Markets Table */}
       <div style={{ marginBottom: '20px' }}>
         <h2 style={{ fontSize: '18px', marginBottom: '8px' }}>Markets ({markets.length})</h2>
         <div style={{ 
@@ -73,12 +70,15 @@ function App() {
           borderRadius: '4px',
           background: 'white'
         }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
             <thead style={{ position: 'sticky', top: 0, background: '#333', zIndex: 1 }}>
               <tr style={{ color: 'white', textAlign: 'left' }}>
-                <th style={{ padding: '8px', minWidth: '300px' }}>Title</th>
-                <th style={{ minWidth: '150px' }}>Subtitle</th>
-                <th style={{ minWidth: '80px' }}>Category</th>
+                <th style={{ padding: '8px', minWidth: '120px' }}>Ticker</th>
+                <th style={{ minWidth: '250px' }}>Title</th>
+                <th style={{ minWidth: '120px' }}>Subtitle</th>
+                <th style={{ minWidth: '120px' }}>Yes Sub</th>
+                <th style={{ minWidth: '120px' }}>No Sub</th>
+                <th style={{ minWidth: '70px' }}>Category</th>
                 <th>Yes Bid</th>
                 <th>Yes Ask</th>
                 <th>No Bid</th>
@@ -96,9 +96,12 @@ function App() {
                 
                 return (
                   <tr key={m.ticker} style={{ borderBottom: '1px solid #eee' }}>
-                    <td style={{ padding: '8px' }}>{m.title}</td>
-                    <td style={{ fontSize: '11px', color: '#555' }}>{m.subtitle || '-'}</td>
-                    <td style={{ fontSize: '11px', color: '#666' }}>{m.category}</td>
+                    <td style={{ padding: '8px', fontFamily: 'monospace', fontSize: '10px' }}>{m.ticker}</td>
+                    <td>{m.title}</td>
+                    <td style={{ color: '#555' }}>{m.subtitle || '-'}</td>
+                    <td style={{ color: '#555' }}>{m.yes_sub_title || '-'}</td>
+                    <td style={{ color: '#555' }}>{m.no_sub_title || '-'}</td>
+                    <td style={{ color: '#666' }}>{m.category}</td>
                     <td style={{ fontWeight: 'bold', color: '#28a745' }}>{m.yes_bid}¢</td>
                     <td style={{ fontWeight: 'bold', color: '#007bff' }}>{m.yes_ask}¢</td>
                     <td style={{ fontWeight: 'bold', color: '#28a745' }}>{m.no_bid}¢</td>
@@ -114,7 +117,6 @@ function App() {
         </div>
       </div>
 
-      {/* Positions Table */}
       <div>
         <h2 style={{ fontSize: '18px', marginBottom: '8px' }}>Open Positions ({positions.length})</h2>
         <div style={{ 

@@ -51,6 +51,8 @@ def get_markets():
             "ticker": market.ticker,
             "title": getattr(market, "title", market.ticker),
             "subtitle": getattr(market, "subtitle", ""),
+            "yes_sub_title": getattr(market, "yes_sub_title", ""),
+            "no_sub_title": getattr(market, "no_sub_title", ""),
             "category": getattr(market, "category", "Unknown"),
             "yes_bid": yes_bid,
             "yes_ask": yes_ask,
