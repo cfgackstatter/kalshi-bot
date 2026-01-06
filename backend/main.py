@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from kalshi_client import KalshiTrader
 
@@ -18,10 +18,18 @@ def get_balance():
 
 @app.get("/api/markets")
 def get_markets():
-    """Get all open markets with full details."""
-    markets_response = trader.get_markets(status="open", limit=100)
-    markets = []
+    """Get markets closing within 24 hours."""
     now = datetime.now(timezone.utc)
+    max_close_time = now + timedelta(hours=24)
+    max_close_ts = int(max_close_time.timestamp())
+    
+    # Fetch markets closing within 24 hours (server-side filter)
+    markets_response = trader.get_markets(
+        status="open", 
+        limit=200, 
+        max_close_ts=max_close_ts
+    )
+    markets = []
 
     for market in markets_response.markets:
         close_time = market.close_time
@@ -35,14 +43,23 @@ def get_markets():
         hours = time_left.seconds // 3600
         minutes = (time_left.seconds % 3600) // 60
 
+        yes_bid = getattr(market, "yes_bid", 0) or 0
+        yes_ask = getattr(market, "yes_ask", 0) or 0
+        no_bid = getattr(market, "no_bid", 0) or 0
+        no_ask = getattr(market, "no_ask", 0) or 0
+
+        # Skip markets where you can't trade (already resolved)
+        if yes_ask >= 100 or yes_ask <= 0 or yes_bid >= 100 or yes_bid <= 0:
+            continue
+
         markets.append({
             "ticker": market.ticker,
             "title": getattr(market, "title", market.ticker),
             "category": getattr(market, "category", "Unknown"),
-            "yes_bid": getattr(market, "yes_bid", 0) or 0,
-            "yes_ask": getattr(market, "yes_ask", 0) or 0,
-            "no_bid": getattr(market, "no_bid", 0) or 0,
-            "no_ask": getattr(market, "no_ask", 0) or 0,
+            "yes_bid": yes_bid,
+            "yes_ask": yes_ask,
+            "no_bid": no_bid,
+            "no_ask": no_ask,
             "volume": getattr(market, "volume", 0) or 0,
             "open_interest": getattr(market, "open_interest", 0) or 0,
             "close_time": close_time.isoformat(),

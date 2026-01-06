@@ -34,9 +34,12 @@ class KalshiTrader:
         balance = self.client.get_balance()
         return {"balance": balance.balance / 100}
     
-    def get_markets(self, status="open", limit=200):
-        """Get all open markets."""
-        return self.client.get_markets(status=status, limit=limit)
+    def get_markets(self, status="open", limit=200, max_close_ts: Optional[int] = None):
+        """Get markets, optionally filtered by close time."""
+        params = {"status": status, "limit": limit}
+        if max_close_ts is not None:
+            params["max_close_ts"] = max_close_ts
+        return self.client.get_markets(**params)
     
     def get_positions(self):
         """Get all current positions."""
