@@ -136,7 +136,9 @@ def execute_trade(request: TradeRequest):
         print(f"  Exception: {type(e).__name__}: {str(e)}")
         traceback.print_exc()
         
-        if hasattr(e, 'body'):
-            print(f"  API error body: {e.body}")
+        # Only access .body if it exists (for API exceptions)
+        error_body = getattr(e, 'body', None)
+        if error_body:
+            print(f"  API error body: {error_body}")
         
         raise HTTPException(status_code=500, detail=str(e))
