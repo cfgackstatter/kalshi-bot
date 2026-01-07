@@ -1,7 +1,7 @@
 from kalshi_python_sync import KalshiClient
 from kalshi_python_sync.configuration import Configuration
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import Optional, Iterator
+from typing import Optional
 
 
 class Settings(BaseSettings):
@@ -62,7 +62,6 @@ class KalshiTrader:
             response = self.client.get_markets(**params)
             all_markets.extend(response.markets)
             
-            # Check if there's a next page
             cursor = getattr(response, "cursor", None)
             if not cursor:
                 break
@@ -78,39 +77,45 @@ class KalshiTrader:
         ticker: str, 
         side: str, 
         quantity: int, 
-        price: Optional[int] = None
+        price: int
     ):
         """
-        Create an order (limit or market).
+        Create a limit order.
         
         Args:
             ticker: Market ticker
             side: "yes" or "no"
             quantity: Number of contracts
-            price: Price in cents (1-99). If None, uses market order
+            price: Limit price in cents (1-99)
         """
-        order_type = "limit" if price is not None else "market"
-        
         params = {
             "ticker": ticker,
             "action": "buy",
             "side": side,
             "count": quantity,
-            "type": order_type
+            "type": "limit",
         }
         
-        if price is not None:
-            params["yes_price"] = price if side == "yes" else None
-            params["no_price"] = price if side == "no" else None
+        if side == "yes":
+            params["yes_price"] = price
+        else:
+            params["no_price"] = price
         
         return self.client.create_order(**params)
     
-    def close_position(self, ticker: str, side: str, quantity: int):
-        """Close a position (sell)."""
-        return self.client.create_order(
-            ticker=ticker,
-            action="sell",
-            side=side,
-            count=quantity,
-            type="market"
-        )
+    def close_position(self, ticker: str, side: str, quantity: int, price: int):
+        """Close a position (sell limit order)."""
+        params = {
+            "ticker": ticker,
+            "action": "sell",
+            "side": side,
+            "count": quantity,
+            "type": "limit",
+        }
+        
+        if side == "yes":
+            params["yes_price"] = price
+        else:
+            params["no_price"] = price
+        
+        return self.client.create_order(**params)

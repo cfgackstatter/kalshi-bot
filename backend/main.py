@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timezone, timedelta
 from pydantic import BaseModel
+import traceback
 
 from kalshi_client import KalshiTrader
 
@@ -15,6 +16,7 @@ class TradeRequest(BaseModel):
     ticker: str
     side: str
     quantity: int
+    price: int
 
 
 @app.get("/api/balance")
@@ -108,23 +110,33 @@ def get_positions():
 
 @app.post("/api/trade")
 def execute_trade(request: TradeRequest):
-    """Execute a market order."""
+    """Execute a limit order."""
     try:
-        # Validate inputs
         if request.side not in ["yes", "no"]:
             raise HTTPException(status_code=400, detail="Side must be 'yes' or 'no'")
         if request.quantity <= 0:
             raise HTTPException(status_code=400, detail="Quantity must be positive")
+        if request.price < 1 or request.price > 99:
+            raise HTTPException(status_code=400, detail="Price must be between 1 and 99")
         
-        # Execute market order (price=None means market order)
+        print(f"Executing limit order: ticker={request.ticker}, side={request.side}, quantity={request.quantity}, price={request.price}¢")
+        
         result = trader.create_order(
             ticker=request.ticker,
             side=request.side,
             quantity=request.quantity,
-            price=None
+            price=request.price
         )
         
+        print(f"Order successful: {result}")
         return {"success": True, "order": result}
     
     except Exception as e:
+        print(f"ERROR executing trade:")
+        print(f"  Exception: {type(e).__name__}: {str(e)}")
+        traceback.print_exc()
+        
+        if hasattr(e, 'body'):
+            print(f"  API error body: {e.body}")
+        
         raise HTTPException(status_code=500, detail=str(e))

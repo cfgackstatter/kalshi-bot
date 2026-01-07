@@ -255,9 +255,15 @@ const FilterButton = ({ active, onClick, label }) => (
 const TradeModal = ({ market, onClose, onSuccess }) => {
   const [side, setSide] = useState('yes')
   const [quantity, setQuantity] = useState(100)
+  const [price, setPrice] = useState(side === 'yes' ? market.yes_ask : market.no_ask)
   const [loading, setLoading] = useState(false)
 
-  const price = side === 'yes' ? market.yes_ask : market.no_ask
+  // Update price when side changes
+  const handleSideChange = (newSide) => {
+    setSide(newSide)
+    setPrice(newSide === 'yes' ? market.yes_ask : market.no_ask)
+  }
+
   const totalCost = (quantity * price / 100).toFixed(2)
   const fee = Math.ceil(0.07 * quantity * (price/100) * (1 - price/100) * 100) / 100
 
@@ -267,7 +273,12 @@ const TradeModal = ({ market, onClose, onSuccess }) => {
       return
     }
 
-    if (!window.confirm(`Execute market order?\n\nBuy ${quantity} ${side.toUpperCase()} @ ${price}¢\nTotal: $${totalCost}\nEstimated fee: $${fee.toFixed(2)}`)) {
+    if (price < 1 || price > 99) {
+      alert('Price must be between 1¢ and 99¢')
+      return
+    }
+
+    if (!window.confirm(`Place limit order?\n\nBuy ${quantity} ${side.toUpperCase()} @ ${price}¢\nTotal: $${totalCost}\nEstimated fee: $${fee.toFixed(2)}\n\nNote: Order may not fill immediately if price is not at market.`)) {
       return
     }
 
@@ -276,9 +287,10 @@ const TradeModal = ({ market, onClose, onSuccess }) => {
       await axios.post(`${API}/trade`, {
         ticker: market.ticker,
         side,
-        quantity
+        quantity,
+        price
       })
-      alert('Order executed successfully!')
+      alert('Limit order placed successfully!')
       onSuccess()
       onClose()
     } catch (err) {
@@ -308,24 +320,52 @@ const TradeModal = ({ market, onClose, onSuccess }) => {
         maxWidth: '500px',
         width: '90%'
       }}>
-        <h2 style={{ marginTop: 0 }}>Trade Market</h2>
+        <h2 style={{ marginTop: 0 }}>Place Limit Order</h2>
         
         <div style={{ marginBottom: '15px' }}>
           <strong>Market:</strong> {market.title}
           {market.subtitle && <div style={{ color: '#666', fontSize: '14px' }}>{market.subtitle}</div>}
         </div>
 
+        <div style={{ marginBottom: '15px', padding: '10px', background: '#f8f9fa', borderRadius: '4px', fontSize: '13px' }}>
+          <div>Current Yes: Bid {market.yes_bid}¢ / Ask {market.yes_ask}¢</div>
+          <div>Current No: Bid {market.no_bid}¢ / Ask {market.no_ask}¢</div>
+        </div>
+
         <div style={{ marginBottom: '15px' }}>
           <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Side:</label>
           <div style={{ display: 'flex', gap: '10px' }}>
             <label style={{ cursor: 'pointer' }}>
-              <input type="radio" value="yes" checked={side === 'yes'} onChange={(e) => setSide(e.target.value)} />
-              {' '}YES @ {market.yes_ask}¢
+              <input type="radio" value="yes" checked={side === 'yes'} onChange={(e) => handleSideChange(e.target.value)} />
+              {' '}YES
             </label>
             <label style={{ cursor: 'pointer' }}>
-              <input type="radio" value="no" checked={side === 'no'} onChange={(e) => setSide(e.target.value)} />
-              {' '}NO @ {market.no_ask}¢
+              <input type="radio" value="no" checked={side === 'no'} onChange={(e) => handleSideChange(e.target.value)} />
+              {' '}NO
             </label>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: '15px' }}>
+          <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+            Limit Price (¢):
+          </label>
+          <input
+            type="number"
+            value={price}
+            onChange={(e) => setPrice(parseInt(e.target.value) || 0)}
+            min="1"
+            max="99"
+            style={{
+              width: '100%',
+              padding: '8px',
+              border: '1px solid #ddd',
+              borderRadius: '4px',
+              fontSize: '14px'
+            }}
+          />
+          <div style={{ fontSize: '12px', color: '#666', marginTop: '3px' }}>
+            Default is current ask (instant fill likely). Lower = better price but may not fill.
           </div>
         </div>
 
@@ -347,8 +387,8 @@ const TradeModal = ({ market, onClose, onSuccess }) => {
         </div>
 
         <div style={{ marginBottom: '20px', padding: '10px', background: '#f8f9fa', borderRadius: '4px' }}>
-          <div><strong>Price per contract:</strong> {price}¢</div>
-          <div><strong>Total cost:</strong> ${totalCost}</div>
+          <div><strong>Limit price:</strong> {price}¢</div>
+          <div><strong>Total cost (if filled):</strong> ${totalCost}</div>
           <div style={{ fontSize: '12px', color: '#666' }}>Est. fee: ${fee.toFixed(2)} (~{((fee / parseFloat(totalCost)) * 100).toFixed(2)}%)</div>
         </div>
 
@@ -366,7 +406,7 @@ const TradeModal = ({ market, onClose, onSuccess }) => {
               cursor: loading ? 'not-allowed' : 'pointer',
               fontWeight: 'bold'
             }}>
-            {loading ? 'Executing...' : 'Execute Market Order'}
+            {loading ? 'Placing Order...' : 'Place Limit Order'}
           </button>
           <button
             onClick={onClose}
