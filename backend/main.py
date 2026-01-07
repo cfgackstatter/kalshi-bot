@@ -85,7 +85,7 @@ def get_positions():
     positions_response = trader.get_positions()
     positions = []
 
-    for pos in getattr(positions_response, "positions", []):
+    for pos in getattr(positions_response, "market_positions", []):
         position_value = (
             pos.position * pos.market_price / 100 if hasattr(pos, "market_price") else 0
         )

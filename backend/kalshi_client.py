@@ -70,7 +70,10 @@ class KalshiTrader:
     
     def get_positions(self):
         """Get all current positions."""
-        return self.client.get_positions()
+        return self.client.get_positions(
+            limit=1000,
+            count_filter="position,total_traded"
+        )
     
     def create_order(
         self, 
