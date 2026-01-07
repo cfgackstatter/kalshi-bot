@@ -13,7 +13,6 @@ class Settings(BaseSettings):
 
 
 def get_settings() -> Settings:
-    """Load settings from .env file."""
     return Settings()  # type: ignore[call-arg]
 
 
@@ -30,7 +29,6 @@ class KalshiTrader:
         self.client = KalshiClient(config)
     
     def get_balance(self):
-        """Get account balance in dollars."""
         balance = self.client.get_balance()
         return {"balance": balance.balance / 100}
     
@@ -39,16 +37,6 @@ class KalshiTrader:
         status: str = "open", 
         max_close_ts: Optional[int] = None
     ) -> list:
-        """
-        Get all markets with automatic pagination.
-        
-        Args:
-            status: Market status filter (default "open")
-            max_close_ts: Filter markets closing before this Unix timestamp
-            
-        Returns:
-            List of all markets matching filters
-        """
         all_markets = []
         cursor = None
         
@@ -69,28 +57,12 @@ class KalshiTrader:
         return all_markets
     
     def get_positions(self):
-        """Get all current positions."""
         return self.client.get_positions(
             limit=1000,
             count_filter="position,total_traded"
         )
     
-    def create_order(
-        self, 
-        ticker: str, 
-        side: str, 
-        quantity: int, 
-        price: int
-    ):
-        """
-        Create a limit order.
-        
-        Args:
-            ticker: Market ticker
-            side: "yes" or "no"
-            quantity: Number of contracts
-            price: Limit price in cents (1-99)
-        """
+    def create_order(self, ticker: str, side: str, quantity: int, price: int):
         params = {
             "ticker": ticker,
             "action": "buy",
@@ -107,7 +79,6 @@ class KalshiTrader:
         return self.client.create_order(**params)
     
     def close_position(self, ticker: str, side: str, quantity: int, price: int):
-        """Close a position (sell limit order)."""
         params = {
             "ticker": ticker,
             "action": "sell",

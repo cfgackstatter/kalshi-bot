@@ -2,7 +2,6 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timezone, timedelta
 from pydantic import BaseModel
-import traceback
 
 from kalshi_client import KalshiTrader
 
@@ -21,13 +20,11 @@ class TradeRequest(BaseModel):
 
 @app.get("/api/balance")
 def get_balance():
-    """Get account balance."""
     return trader.get_balance()
 
 
 @app.get("/api/markets")
 def get_markets():
-    """Get all markets closing within 72 hours, sorted by time remaining."""
     now = datetime.now(timezone.utc)
     max_close_time = now + timedelta(hours=72)
     max_close_ts = int(max_close_time.timestamp())
@@ -81,28 +78,22 @@ def get_markets():
 
 @app.get("/api/positions")
 def get_positions():
-    """Get current positions with P&L."""
     positions_response = trader.get_positions()
+    market_positions = getattr(positions_response, "market_positions", [])
+    
     positions = []
-
-    for pos in getattr(positions_response, "market_positions", []):
-        position_value = (
-            pos.position * pos.market_price / 100 if hasattr(pos, "market_price") else 0
-        )
-        cost_basis = (
-            pos.position * pos.avg_price / 100 if hasattr(pos, "avg_price") else 0
-        )
-        pnl = position_value - cost_basis
-
+    for pos in market_positions:
         positions.append({
             "ticker": pos.ticker,
-            "side": getattr(pos, "side", "yes"),
-            "quantity": pos.position,
-            "avg_price": (pos.avg_price / 100) if hasattr(pos, "avg_price") else 0,
-            "current_price": (pos.market_price / 100)
-            if hasattr(pos, "market_price")
-            else 0,
-            "pnl": pnl,
+            "position": pos.position,
+            "market_exposure": pos.market_exposure,
+            "market_exposure_dollars": float(pos.market_exposure_dollars),
+            "realized_pnl": pos.realized_pnl,
+            "realized_pnl_dollars": float(pos.realized_pnl_dollars),
+            "total_traded": pos.total_traded,
+            "fees_paid": pos.fees_paid,
+            "fees_paid_dollars": float(pos.fees_paid_dollars),
+            "resting_orders_count": pos.resting_orders_count,
         })
 
     return {"positions": positions, "count": len(positions)}
@@ -110,7 +101,6 @@ def get_positions():
 
 @app.post("/api/trade")
 def execute_trade(request: TradeRequest):
-    """Execute a limit order."""
     try:
         if request.side not in ["yes", "no"]:
             raise HTTPException(status_code=400, detail="Side must be 'yes' or 'no'")
@@ -119,8 +109,6 @@ def execute_trade(request: TradeRequest):
         if request.price < 1 or request.price > 99:
             raise HTTPException(status_code=400, detail="Price must be between 1 and 99")
         
-        print(f"Executing limit order: ticker={request.ticker}, side={request.side}, quantity={request.quantity}, price={request.price}¢")
-        
         result = trader.create_order(
             ticker=request.ticker,
             side=request.side,
@@ -128,17 +116,30 @@ def execute_trade(request: TradeRequest):
             price=request.price
         )
         
-        print(f"Order successful: {result}")
         return {"success": True, "order": result}
     
     except Exception as e:
-        print(f"ERROR executing trade:")
-        print(f"  Exception: {type(e).__name__}: {str(e)}")
-        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/close")
+def close_position(request: TradeRequest):
+    try:
+        if request.side not in ["yes", "no"]:
+            raise HTTPException(status_code=400, detail="Side must be 'yes' or 'no'")
+        if request.quantity <= 0:
+            raise HTTPException(status_code=400, detail="Quantity must be positive")
+        if request.price < 1 or request.price > 99:
+            raise HTTPException(status_code=400, detail="Price must be between 1 and 99")
         
-        # Only access .body if it exists (for API exceptions)
-        error_body = getattr(e, 'body', None)
-        if error_body:
-            print(f"  API error body: {error_body}")
+        result = trader.close_position(
+            ticker=request.ticker,
+            side=request.side,
+            quantity=request.quantity,
+            price=request.price
+        )
         
+        return {"success": True, "order": result}
+    
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

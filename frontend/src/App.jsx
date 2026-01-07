@@ -14,6 +14,7 @@ function App() {
     highVolume: false
   })
   const [tradeModal, setTradeModal] = useState(null)
+  const [closeModal, setCloseModal] = useState(null)
 
   useEffect(() => {
     fetchData()
@@ -46,7 +47,7 @@ function App() {
     return true
   })
 
-  const totalPnl = positions.reduce((sum, p) => sum + p.pnl, 0)
+  const totalPnl = positions.reduce((sum, p) => sum + p.realized_pnl_dollars, 0)
 
   return (
     <div style={{ padding: '15px', fontFamily: 'system-ui', maxWidth: '2000px', margin: '0 auto' }}>
@@ -70,7 +71,7 @@ function App() {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginBottom: '15px' }}>
         <Card title="Balance" value={`$${balance.toFixed(2)}`} />
-        <Card title="P&L" value={`$${totalPnl.toFixed(2)}`} color={totalPnl >= 0 ? 'green' : 'red'} />
+        <Card title="Realized P&L" value={`$${totalPnl.toFixed(2)}`} color={totalPnl >= 0 ? 'green' : 'red'} />
         <Card title="Positions" value={positions.length} />
         <Card title="Markets" value={`${filteredMarkets.length} / ${markets.length}`} />
       </div>
@@ -190,17 +191,19 @@ function App() {
             <thead style={{ position: 'sticky', top: 0, background: '#333', zIndex: 1 }}>
               <tr style={{ color: 'white', textAlign: 'left' }}>
                 <th style={{ padding: '8px' }}>Ticker</th>
-                <th>Side</th>
-                <th>Quantity</th>
-                <th>Avg Price</th>
-                <th>Current Price</th>
-                <th>P&L</th>
+                <th>Contracts</th>
+                <th>Exposure</th>
+                <th>Realized P&L</th>
+                <th>Total Traded</th>
+                <th>Fees Paid</th>
+                <th>Resting Orders</th>
+                <th>Action</th>
               </tr>
             </thead>
             <tbody>
               {positions.length === 0 ? (
                 <tr>
-                  <td colSpan="6" style={{ padding: '20px', textAlign: 'center', color: '#999' }}>
+                  <td colSpan="8" style={{ padding: '20px', textAlign: 'center', color: '#999' }}>
                     No open positions
                   </td>
                 </tr>
@@ -208,12 +211,29 @@ function App() {
                 positions.map((p, i) => (
                   <tr key={i} style={{ borderBottom: '1px solid #eee' }}>
                     <td style={{ padding: '8px', fontFamily: 'monospace' }}>{p.ticker}</td>
-                    <td style={{ textTransform: 'uppercase', fontWeight: 'bold' }}>{p.side}</td>
-                    <td>{p.quantity}</td>
-                    <td>{(p.avg_price * 100).toFixed(0)}¢</td>
-                    <td>{(p.current_price * 100).toFixed(0)}¢</td>
-                    <td style={{ color: p.pnl >= 0 ? 'green' : 'red', fontWeight: 'bold' }}>
-                      ${p.pnl.toFixed(2)}
+                    <td>{p.position}</td>
+                    <td>${p.market_exposure_dollars.toFixed(2)}</td>
+                    <td style={{ color: p.realized_pnl_dollars >= 0 ? 'green' : 'red', fontWeight: 'bold' }}>
+                      ${p.realized_pnl_dollars.toFixed(2)}
+                    </td>
+                    <td>{p.total_traded}</td>
+                    <td>${p.fees_paid_dollars.toFixed(2)}</td>
+                    <td>{p.resting_orders_count}</td>
+                    <td>
+                      <button
+                        onClick={() => setCloseModal(p)}
+                        style={{
+                          padding: '4px 8px',
+                          background: '#dc3545',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '3px',
+                          cursor: 'pointer',
+                          fontSize: '11px',
+                          fontWeight: 'bold'
+                        }}>
+                        Close
+                      </button>
                     </td>
                   </tr>
                 ))
@@ -224,6 +244,7 @@ function App() {
       </div>
 
       {tradeModal && <TradeModal market={tradeModal} onClose={() => setTradeModal(null)} onSuccess={fetchData} />}
+      {closeModal && <CloseModal position={closeModal} markets={markets} onClose={() => setCloseModal(null)} onSuccess={fetchData} />}
     </div>
   )
 }
@@ -258,7 +279,6 @@ const TradeModal = ({ market, onClose, onSuccess }) => {
   const [price, setPrice] = useState(side === 'yes' ? market.yes_ask : market.no_ask)
   const [loading, setLoading] = useState(false)
 
-  // Update price when side changes
   const handleSideChange = (newSide) => {
     setSide(newSide)
     setPrice(newSide === 'yes' ? market.yes_ask : market.no_ask)
@@ -278,7 +298,7 @@ const TradeModal = ({ market, onClose, onSuccess }) => {
       return
     }
 
-    if (!window.confirm(`Place limit order?\n\nBuy ${quantity} ${side.toUpperCase()} @ ${price}¢\nTotal: $${totalCost}\nEstimated fee: $${fee.toFixed(2)}\n\nNote: Order may not fill immediately if price is not at market.`)) {
+    if (!window.confirm(`Place limit order?\n\nBuy ${quantity} ${side.toUpperCase()} @ ${price}¢\nTotal: $${totalCost}\nEstimated fee: $${fee.toFixed(2)}`)) {
       return
     }
 
@@ -407,6 +427,170 @@ const TradeModal = ({ market, onClose, onSuccess }) => {
               fontWeight: 'bold'
             }}>
             {loading ? 'Placing Order...' : 'Place Limit Order'}
+          </button>
+          <button
+            onClick={onClose}
+            disabled={loading}
+            style={{
+              flex: 1,
+              padding: '10px',
+              background: '#6c757d',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer'
+            }}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const CloseModal = ({ position, markets, onClose, onSuccess }) => {
+  const market = markets.find(m => m.ticker === position.ticker)
+  const side = position.position > 0 ? 'yes' : 'no'
+  const absPosition = Math.abs(position.position)
+  
+  const [quantity, setQuantity] = useState(absPosition)
+  const [price, setPrice] = useState(market ? (side === 'yes' ? market.yes_bid : market.no_bid) : 50)
+  const [loading, setLoading] = useState(false)
+
+  const totalProceeds = (quantity * price / 100).toFixed(2)
+
+  const handleClose = async () => {
+    if (quantity <= 0 || quantity > absPosition) {
+      alert(`Quantity must be between 1 and ${absPosition}`)
+      return
+    }
+
+    if (price < 1 || price > 99) {
+      alert('Price must be between 1¢ and 99¢')
+      return
+    }
+
+    if (!window.confirm(`Close position?\n\nSell ${quantity} ${side.toUpperCase()} @ ${price}¢\nProceeds: $${totalProceeds}`)) {
+      return
+    }
+
+    setLoading(true)
+    try {
+      await axios.post(`${API}/close`, {
+        ticker: position.ticker,
+        side,
+        quantity,
+        price
+      })
+      alert('Close order placed successfully!')
+      onSuccess()
+      onClose()
+    } catch (err) {
+      alert(`Error: ${err.response?.data?.detail || err.message}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      background: 'rgba(0,0,0,0.5)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 1000
+    }}>
+      <div style={{
+        background: 'white',
+        padding: '20px',
+        borderRadius: '8px',
+        maxWidth: '500px',
+        width: '90%'
+      }}>
+        <h2 style={{ marginTop: 0 }}>Close Position</h2>
+        
+        <div style={{ marginBottom: '15px' }}>
+          <strong>Ticker:</strong> {position.ticker}
+          <div style={{ color: '#666', fontSize: '14px' }}>
+            Position: {absPosition} {side.toUpperCase()} contracts
+          </div>
+        </div>
+
+        {market && (
+          <div style={{ marginBottom: '15px', padding: '10px', background: '#f8f9fa', borderRadius: '4px', fontSize: '13px' }}>
+            <div>Current Yes: Bid {market.yes_bid}¢ / Ask {market.yes_ask}¢</div>
+            <div>Current No: Bid {market.no_bid}¢ / Ask {market.no_ask}¢</div>
+          </div>
+        )}
+
+        <div style={{ marginBottom: '15px' }}>
+          <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+            Sell Price (¢):
+          </label>
+          <input
+            type="number"
+            value={price}
+            onChange={(e) => setPrice(parseInt(e.target.value) || 0)}
+            min="1"
+            max="99"
+            style={{
+              width: '100%',
+              padding: '8px',
+              border: '1px solid #ddd',
+              borderRadius: '4px',
+              fontSize: '14px'
+            }}
+          />
+          <div style={{ fontSize: '12px', color: '#666', marginTop: '3px' }}>
+            Default is current bid (instant fill likely). Higher = better price but may not fill.
+          </div>
+        </div>
+
+        <div style={{ marginBottom: '15px' }}>
+          <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+            Quantity (max {absPosition}):
+          </label>
+          <input
+            type="number"
+            value={quantity}
+            onChange={(e) => setQuantity(parseInt(e.target.value) || 0)}
+            min="1"
+            max={absPosition}
+            style={{
+              width: '100%',
+              padding: '8px',
+              border: '1px solid #ddd',
+              borderRadius: '4px',
+              fontSize: '14px'
+            }}
+          />
+        </div>
+
+        <div style={{ marginBottom: '20px', padding: '10px', background: '#f8f9fa', borderRadius: '4px' }}>
+          <div><strong>Sell price:</strong> {price}¢</div>
+          <div><strong>Proceeds (if filled):</strong> ${totalProceeds}</div>
+        </div>
+
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button
+            onClick={handleClose}
+            disabled={loading}
+            style={{
+              flex: 1,
+              padding: '10px',
+              background: loading ? '#ccc' : '#dc3545',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              fontWeight: 'bold'
+            }}>
+            {loading ? 'Placing Order...' : 'Close Position'}
           </button>
           <button
             onClick={onClose}
