@@ -13,6 +13,7 @@ function App() {
     tightSpread: false,
     highVolume: false
   })
+  const [tradeModal, setTradeModal] = useState(null)
 
   useEffect(() => {
     fetchData()
@@ -37,14 +38,11 @@ function App() {
     }
   }
 
-  // Apply filters
   const filteredMarkets = markets.filter(m => {
     const spread = m.yes_ask - m.yes_bid
-    
     if (filters.highProb && m.yes_bid < 98) return false
     if (filters.tightSpread && spread > 2) return false
     if (filters.highVolume && m.volume < 10000) return false
-    
     return true
   })
 
@@ -83,7 +81,6 @@ function App() {
             Markets ({filteredMarkets.length}{filteredMarkets.length !== markets.length && ` of ${markets.length}`})
           </h2>
           
-          {/* Filter Buttons */}
           <div style={{ display: 'flex', gap: '8px' }}>
             <FilterButton 
               active={filters.highProb}
@@ -118,7 +115,6 @@ function App() {
                 <th style={{ minWidth: '120px' }}>Subtitle</th>
                 <th style={{ minWidth: '120px' }}>Yes Sub</th>
                 <th style={{ minWidth: '120px' }}>No Sub</th>
-                <th style={{ minWidth: '70px' }}>Category</th>
                 <th>Yes Bid</th>
                 <th>Yes Ask</th>
                 <th>No Bid</th>
@@ -126,6 +122,7 @@ function App() {
                 <th>Volume</th>
                 <th>Open Int.</th>
                 <th>Time Left</th>
+                <th>Action</th>
               </tr>
             </thead>
             <tbody>
@@ -148,7 +145,6 @@ function App() {
                       <td style={{ color: '#555' }}>{m.subtitle || '-'}</td>
                       <td style={{ color: '#555' }}>{m.yes_sub_title || '-'}</td>
                       <td style={{ color: '#555' }}>{m.no_sub_title || '-'}</td>
-                      <td style={{ color: '#666' }}>{m.category}</td>
                       <td style={{ fontWeight: 'bold', color: '#28a745' }}>{m.yes_bid}¢</td>
                       <td style={{ fontWeight: 'bold', color: '#007bff' }}>{m.yes_ask}¢</td>
                       <td style={{ fontWeight: 'bold', color: '#28a745' }}>{m.no_bid}¢</td>
@@ -156,6 +152,22 @@ function App() {
                       <td>{m.volume.toLocaleString()}</td>
                       <td>{m.open_interest.toLocaleString()}</td>
                       <td style={{ whiteSpace: 'nowrap' }}>{timeStr}</td>
+                      <td>
+                        <button
+                          onClick={() => setTradeModal(m)}
+                          style={{
+                            padding: '4px 8px',
+                            background: '#007bff',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '3px',
+                            cursor: 'pointer',
+                            fontSize: '11px',
+                            fontWeight: 'bold'
+                          }}>
+                          Trade
+                        </button>
+                      </td>
                     </tr>
                   )
                 })
@@ -210,6 +222,8 @@ function App() {
           </table>
         </div>
       </div>
+
+      {tradeModal && <TradeModal market={tradeModal} onClose={() => setTradeModal(null)} onSuccess={fetchData} />}
     </div>
   )
 }
@@ -232,11 +246,146 @@ const FilterButton = ({ active, onClick, label }) => (
       borderRadius: '4px',
       cursor: 'pointer',
       fontSize: '12px',
-      fontWeight: active ? 'bold' : 'normal',
-      transition: 'all 0.2s'
+      fontWeight: active ? 'bold' : 'normal'
     }}>
     {label} {active && '✓'}
   </button>
 )
+
+const TradeModal = ({ market, onClose, onSuccess }) => {
+  const [side, setSide] = useState('yes')
+  const [quantity, setQuantity] = useState(100)
+  const [loading, setLoading] = useState(false)
+
+  const price = side === 'yes' ? market.yes_ask : market.no_ask
+  const totalCost = (quantity * price / 100).toFixed(2)
+  const fee = Math.ceil(0.07 * quantity * (price/100) * (1 - price/100) * 100) / 100
+
+  const handleTrade = async () => {
+    if (quantity <= 0) {
+      alert('Quantity must be positive')
+      return
+    }
+
+    if (!window.confirm(`Execute market order?\n\nBuy ${quantity} ${side.toUpperCase()} @ ${price}¢\nTotal: $${totalCost}\nEstimated fee: $${fee.toFixed(2)}`)) {
+      return
+    }
+
+    setLoading(true)
+    try {
+      await axios.post(`${API}/trade`, {
+        ticker: market.ticker,
+        side,
+        quantity
+      })
+      alert('Order executed successfully!')
+      onSuccess()
+      onClose()
+    } catch (err) {
+      alert(`Error: ${err.response?.data?.detail || err.message}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      background: 'rgba(0,0,0,0.5)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 1000
+    }}>
+      <div style={{
+        background: 'white',
+        padding: '20px',
+        borderRadius: '8px',
+        maxWidth: '500px',
+        width: '90%'
+      }}>
+        <h2 style={{ marginTop: 0 }}>Trade Market</h2>
+        
+        <div style={{ marginBottom: '15px' }}>
+          <strong>Market:</strong> {market.title}
+          {market.subtitle && <div style={{ color: '#666', fontSize: '14px' }}>{market.subtitle}</div>}
+        </div>
+
+        <div style={{ marginBottom: '15px' }}>
+          <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Side:</label>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <label style={{ cursor: 'pointer' }}>
+              <input type="radio" value="yes" checked={side === 'yes'} onChange={(e) => setSide(e.target.value)} />
+              {' '}YES @ {market.yes_ask}¢
+            </label>
+            <label style={{ cursor: 'pointer' }}>
+              <input type="radio" value="no" checked={side === 'no'} onChange={(e) => setSide(e.target.value)} />
+              {' '}NO @ {market.no_ask}¢
+            </label>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: '15px' }}>
+          <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Quantity:</label>
+          <input
+            type="number"
+            value={quantity}
+            onChange={(e) => setQuantity(parseInt(e.target.value) || 0)}
+            min="1"
+            style={{
+              width: '100%',
+              padding: '8px',
+              border: '1px solid #ddd',
+              borderRadius: '4px',
+              fontSize: '14px'
+            }}
+          />
+        </div>
+
+        <div style={{ marginBottom: '20px', padding: '10px', background: '#f8f9fa', borderRadius: '4px' }}>
+          <div><strong>Price per contract:</strong> {price}¢</div>
+          <div><strong>Total cost:</strong> ${totalCost}</div>
+          <div style={{ fontSize: '12px', color: '#666' }}>Est. fee: ${fee.toFixed(2)} (~{((fee / parseFloat(totalCost)) * 100).toFixed(2)}%)</div>
+        </div>
+
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button
+            onClick={handleTrade}
+            disabled={loading}
+            style={{
+              flex: 1,
+              padding: '10px',
+              background: loading ? '#ccc' : '#28a745',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              fontWeight: 'bold'
+            }}>
+            {loading ? 'Executing...' : 'Execute Market Order'}
+          </button>
+          <button
+            onClick={onClose}
+            disabled={loading}
+            style={{
+              flex: 1,
+              padding: '10px',
+              background: '#6c757d',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer'
+            }}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export default App

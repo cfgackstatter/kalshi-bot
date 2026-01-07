@@ -1,6 +1,7 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timezone, timedelta
+from pydantic import BaseModel
 
 from kalshi_client import KalshiTrader
 
@@ -8,6 +9,12 @@ app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"])
 
 trader = KalshiTrader()
+
+
+class TradeRequest(BaseModel):
+    ticker: str
+    side: str
+    quantity: int
 
 
 @app.get("/api/balance")
@@ -53,7 +60,6 @@ def get_markets():
             "subtitle": getattr(market, "subtitle", ""),
             "yes_sub_title": getattr(market, "yes_sub_title", ""),
             "no_sub_title": getattr(market, "no_sub_title", ""),
-            "category": getattr(market, "category", "Unknown"),
             "yes_bid": yes_bid,
             "yes_ask": yes_ask,
             "no_bid": no_bid,
@@ -98,3 +104,27 @@ def get_positions():
         })
 
     return {"positions": positions, "count": len(positions)}
+
+
+@app.post("/api/trade")
+def execute_trade(request: TradeRequest):
+    """Execute a market order."""
+    try:
+        # Validate inputs
+        if request.side not in ["yes", "no"]:
+            raise HTTPException(status_code=400, detail="Side must be 'yes' or 'no'")
+        if request.quantity <= 0:
+            raise HTTPException(status_code=400, detail="Quantity must be positive")
+        
+        # Execute market order (price=None means market order)
+        result = trader.create_order(
+            ticker=request.ticker,
+            side=request.side,
+            quantity=request.quantity,
+            price=None
+        )
+        
+        return {"success": True, "order": result}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
