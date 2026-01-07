@@ -18,9 +18,9 @@ def get_balance():
 
 @app.get("/api/markets")
 def get_markets():
-    """Get all markets closing within 24 hours, sorted by time remaining."""
+    """Get all markets closing within 72 hours, sorted by time remaining."""
     now = datetime.now(timezone.utc)
-    max_close_time = now + timedelta(hours=24)
+    max_close_time = now + timedelta(hours=72)
     max_close_ts = int(max_close_time.timestamp())
     
     all_markets = trader.get_all_markets(status="open", max_close_ts=max_close_ts)
