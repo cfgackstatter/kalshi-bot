@@ -97,9 +97,8 @@ class KalshiTrader:
         """Get current positions."""
         data = self._request("GET", "/portfolio/positions", params={
             "limit": 1000,
-            "count_filter": "position,total_traded"
+            "count_filter": "position"
         })
-        # Convert market_positions list items to SimpleNamespace objects
         if "market_positions" in data:
             data["market_positions"] = [SimpleNamespace(**pos) for pos in data["market_positions"]]
         return SimpleNamespace(**data)
