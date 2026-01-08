@@ -29,7 +29,7 @@ def get_markets():
     max_close_time = now + timedelta(hours=72)
     max_close_ts = int(max_close_time.timestamp())
     
-    all_markets = trader.get_all_markets(status="open", max_close_ts=max_close_ts)
+    all_markets = trader.get_markets(status="open", max_close_ts=max_close_ts)
     markets = []
     
     for market in all_markets:
@@ -40,11 +40,8 @@ def get_markets():
             close_time = close_time.replace(tzinfo=timezone.utc)
 
         time_left = close_time - now
-        days = time_left.days
-        hours = time_left.seconds // 3600
-        minutes = (time_left.seconds % 3600) // 60
         total_seconds = time_left.total_seconds()
-
+        
         yes_bid = getattr(market, "yes_bid", 0) or 0
         yes_ask = getattr(market, "yes_ask", 0) or 0
         no_bid = getattr(market, "no_bid", 0) or 0
@@ -63,12 +60,10 @@ def get_markets():
             "yes_ask": yes_ask,
             "no_bid": no_bid,
             "no_ask": no_ask,
+            "last_price": getattr(market, "last_price", yes_ask),
             "volume": getattr(market, "volume", 0) or 0,
             "open_interest": getattr(market, "open_interest", 0) or 0,
             "close_time": close_time.isoformat(),
-            "days_left": days,
-            "hours_left": hours,
-            "minutes_left": minutes,
             "total_seconds_left": total_seconds,
         })
 
@@ -81,19 +76,67 @@ def get_positions():
     positions_response = trader.get_positions()
     market_positions = getattr(positions_response, "market_positions", [])
     
+    if not market_positions:
+        return {"positions": [], "count": 0}
+    
+    tickers = [pos.ticker for pos in market_positions]
+    markets_list = trader.get_markets(tickers=tickers)
+    
+    markets_data = {}
+    now = datetime.now(timezone.utc)
+    
+    for market in markets_list:
+        close_time = market.close_time
+        if isinstance(close_time, str):
+            close_time = datetime.fromisoformat(close_time.replace("Z", "+00:00"))
+        if close_time.tzinfo is None:
+            close_time = close_time.replace(tzinfo=timezone.utc)
+        
+        time_left = close_time - now
+        days_left = max(0, time_left.days)
+        
+        markets_data[market.ticker] = {
+            "last_price": getattr(market, "last_price", getattr(market, "yes_ask", 50)),
+            "yes_bid": getattr(market, "yes_bid", 0),
+            "yes_ask": getattr(market, "yes_ask", 0),
+            "no_bid": getattr(market, "no_bid", 0),
+            "no_ask": getattr(market, "no_ask", 0),
+            "days_to_expiry": days_left,
+        }
+    
     positions = []
     for pos in market_positions:
+        market_info = markets_data.get(pos.ticker, {
+            "last_price": 50,
+            "yes_bid": 0,
+            "yes_ask": 0,
+            "no_bid": 0,
+            "no_ask": 0,
+            "days_to_expiry": 0
+        })
+        
+        contracts = pos.position
+        total_cost = float(pos.market_exposure_dollars)
+        avg_price = (total_cost / contracts * 100) if contracts != 0 else 0
+        cost_with_fees = total_cost + float(pos.fees_paid_dollars)
+        payout_if_right = contracts * 1.0
+        market_value = contracts * market_info["last_price"] / 100
+        unrealized_return = market_value - cost_with_fees
+        
         positions.append({
             "ticker": pos.ticker,
-            "position": pos.position,
-            "market_exposure": pos.market_exposure,
-            "market_exposure_dollars": float(pos.market_exposure_dollars),
-            "realized_pnl": pos.realized_pnl,
-            "realized_pnl_dollars": float(pos.realized_pnl_dollars),
-            "total_traded": pos.total_traded,
-            "fees_paid": pos.fees_paid,
-            "fees_paid_dollars": float(pos.fees_paid_dollars),
-            "resting_orders_count": pos.resting_orders_count,
+            "last_price": market_info["last_price"],
+            "contracts": contracts,
+            "avg_price": avg_price,
+            "cost": cost_with_fees,
+            "payout_if_right": payout_if_right,
+            "market_value": market_value,
+            "unrealized_return": unrealized_return,
+            "dte": market_info["days_to_expiry"],
+            "yes_bid": market_info["yes_bid"],
+            "yes_ask": market_info["yes_ask"],
+            "no_bid": market_info["no_bid"],
+            "no_ask": market_info["no_ask"],
         })
 
     return {"positions": positions, "count": len(positions)}
@@ -117,7 +160,6 @@ def execute_trade(request: TradeRequest):
         )
         
         return {"success": True, "order": result}
-    
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -140,6 +182,5 @@ def close_position(request: TradeRequest):
         )
         
         return {"success": True, "order": result}
-    
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

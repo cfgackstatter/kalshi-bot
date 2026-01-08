@@ -32,11 +32,7 @@ class KalshiTrader:
         balance = self.client.get_balance()
         return {"balance": balance.balance / 100}
     
-    def get_all_markets(
-        self, 
-        status: str = "open", 
-        max_close_ts: Optional[int] = None
-    ) -> list:
+    def get_markets(self, tickers: Optional[list] = None, status: str = "open", max_close_ts: Optional[int] = None) -> list:
         all_markets = []
         cursor = None
         
@@ -44,6 +40,8 @@ class KalshiTrader:
             params = {"status": status, "limit": 1000}
             if max_close_ts is not None:
                 params["max_close_ts"] = max_close_ts
+            if tickers:
+                params["tickers"] = ",".join(tickers)
             if cursor:
                 params["cursor"] = cursor
             
@@ -57,10 +55,7 @@ class KalshiTrader:
         return all_markets
     
     def get_positions(self):
-        return self.client.get_positions(
-            limit=1000,
-            count_filter="position,total_traded"
-        )
+        return self.client.get_positions(limit=1000, count_filter="position,total_traded")
     
     def create_order(self, ticker: str, side: str, quantity: int, price: int):
         params = {
