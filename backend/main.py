@@ -40,6 +40,9 @@ def get_markets():
             close_time = close_time.replace(tzinfo=timezone.utc)
 
         time_left = close_time - now
+        days = time_left.days
+        hours = time_left.seconds // 3600
+        minutes = (time_left.seconds % 3600) // 60
         total_seconds = time_left.total_seconds()
         
         yes_bid = getattr(market, "yes_bid", 0) or 0
@@ -60,10 +63,12 @@ def get_markets():
             "yes_ask": yes_ask,
             "no_bid": no_bid,
             "no_ask": no_ask,
-            "last_price": getattr(market, "last_price", yes_ask),
             "volume": getattr(market, "volume", 0) or 0,
             "open_interest": getattr(market, "open_interest", 0) or 0,
             "close_time": close_time.isoformat(),
+            "days_left": days,
+            "hours_left": hours,
+            "minutes_left": minutes,
             "total_seconds_left": total_seconds,
         })
 
@@ -93,7 +98,9 @@ def get_positions():
             close_time = close_time.replace(tzinfo=timezone.utc)
         
         time_left = close_time - now
-        days_left = max(0, time_left.days)
+        days = time_left.days
+        hours = time_left.seconds // 3600
+        minutes = (time_left.seconds % 3600) // 60
         
         markets_data[market.ticker] = {
             "last_price": getattr(market, "last_price", getattr(market, "yes_ask", 50)),
@@ -101,7 +108,9 @@ def get_positions():
             "yes_ask": getattr(market, "yes_ask", 0),
             "no_bid": getattr(market, "no_bid", 0),
             "no_ask": getattr(market, "no_ask", 0),
-            "days_to_expiry": days_left,
+            "days_left": days,
+            "hours_left": hours,
+            "minutes_left": minutes,
         }
     
     positions = []
@@ -112,13 +121,16 @@ def get_positions():
             "yes_ask": 0,
             "no_bid": 0,
             "no_ask": 0,
-            "days_to_expiry": 0
+            "days_left": 0,
+            "hours_left": 0,
+            "minutes_left": 0,
         })
         
         contracts = pos.position
         total_cost = float(pos.market_exposure_dollars)
-        avg_price = (total_cost / contracts * 100) if contracts != 0 else 0
-        cost_with_fees = total_cost + float(pos.fees_paid_dollars)
+        fees_paid = float(pos.fees_paid_dollars)
+        cost_with_fees = total_cost + fees_paid
+        avg_price_with_fees = (cost_with_fees / contracts * 100) if contracts != 0 else 0
         payout_if_right = contracts * 1.0
         market_value = contracts * market_info["last_price"] / 100
         unrealized_return = market_value - cost_with_fees
@@ -127,12 +139,14 @@ def get_positions():
             "ticker": pos.ticker,
             "last_price": market_info["last_price"],
             "contracts": contracts,
-            "avg_price": avg_price,
+            "avg_price": avg_price_with_fees,
             "cost": cost_with_fees,
             "payout_if_right": payout_if_right,
             "market_value": market_value,
             "unrealized_return": unrealized_return,
-            "dte": market_info["days_to_expiry"],
+            "days_left": market_info["days_left"],
+            "hours_left": market_info["hours_left"],
+            "minutes_left": market_info["minutes_left"],
             "yes_bid": market_info["yes_bid"],
             "yes_ask": market_info["yes_ask"],
             "no_bid": market_info["no_bid"],

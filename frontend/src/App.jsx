@@ -42,7 +42,6 @@ function App() {
 
   const positionsValue = positions.reduce((sum, p) => sum + p.market_value, 0)
   const portfolioValue = balance + positionsValue
-  const totalAllocation = positions.reduce((sum, p) => sum + p.market_value, 0)
 
   return (
     <div style={{ padding: '15px', fontFamily: 'system-ui', maxWidth: '2000px', margin: '0 auto' }}>
@@ -59,9 +58,11 @@ function App() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '15px' }}>
         <div style={{ padding: '12px', background: 'white', border: '1px solid #ddd', borderRadius: '4px' }}>
           <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>Portfolio</div>
-          <div style={{ fontSize: '20px', fontWeight: 'bold' }}>${portfolioValue.toFixed(2)}</div>
-          <div style={{ fontSize: '11px', color: '#999', marginTop: '4px' }}>
-            Positions: ${positionsValue.toFixed(2)} | Cash: ${balance.toFixed(2)}
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+            <div style={{ fontSize: '20px', fontWeight: 'bold' }}>${portfolioValue.toFixed(2)}</div>
+            <div style={{ fontSize: '11px', color: '#999' }}>
+              Pos: ${positionsValue.toFixed(2)} | Cash: ${balance.toFixed(2)}
+            </div>
           </div>
         </div>
         <Card title="Positions" value={positions.length} />
@@ -87,38 +88,50 @@ function App() {
                 <th style={{ padding: '8px', minWidth: '120px' }}>Ticker</th>
                 <th style={{ minWidth: '250px' }}>Title</th>
                 <th style={{ minWidth: '120px' }}>Subtitle</th>
+                <th style={{ minWidth: '120px' }}>Yes Sub</th>
+                <th style={{ minWidth: '120px' }}>No Sub</th>
                 <th>Yes Bid</th>
                 <th>Yes Ask</th>
                 <th>No Bid</th>
                 <th>No Ask</th>
                 <th>Volume</th>
                 <th>Open Int.</th>
+                <th>Time Left</th>
                 <th>Action</th>
               </tr>
             </thead>
             <tbody>
               {filteredMarkets.length === 0 ? (
-                <tr><td colSpan="10" style={{ padding: '20px', textAlign: 'center', color: '#999' }}>No markets match filters</td></tr>
+                <tr><td colSpan="13" style={{ padding: '20px', textAlign: 'center', color: '#999' }}>No markets match filters</td></tr>
               ) : (
-                filteredMarkets.map(m => (
-                  <tr key={m.ticker} style={{ borderBottom: '1px solid #eee' }}>
-                    <td style={{ padding: '8px', fontFamily: 'monospace', fontSize: '10px' }}>{m.ticker}</td>
-                    <td>{m.title}</td>
-                    <td style={{ color: '#555' }}>{m.subtitle || '-'}</td>
-                    <td style={{ fontWeight: 'bold', color: '#28a745' }}>{m.yes_bid}¢</td>
-                    <td style={{ fontWeight: 'bold', color: '#007bff' }}>{m.yes_ask}¢</td>
-                    <td style={{ fontWeight: 'bold', color: '#28a745' }}>{m.no_bid}¢</td>
-                    <td style={{ fontWeight: 'bold', color: '#007bff' }}>{m.no_ask}¢</td>
-                    <td>{m.volume.toLocaleString()}</td>
-                    <td>{m.open_interest.toLocaleString()}</td>
-                    <td>
-                      <button onClick={() => setTradeModal(m)} style={{
-                        padding: '4px 8px', background: '#007bff', color: 'white', border: 'none', 
-                        borderRadius: '3px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold'
-                      }}>Trade</button>
-                    </td>
-                  </tr>
-                ))
+                filteredMarkets.map(m => {
+                  const timeStr = m.days_left > 0 
+                    ? `${m.days_left}d ${m.hours_left}h`
+                    : `${m.hours_left}h ${m.minutes_left}m`
+                  
+                  return (
+                    <tr key={m.ticker} style={{ borderBottom: '1px solid #eee' }}>
+                      <td style={{ padding: '8px', fontFamily: 'monospace', fontSize: '10px' }}>{m.ticker}</td>
+                      <td>{m.title}</td>
+                      <td style={{ color: '#555' }}>{m.subtitle || '-'}</td>
+                      <td style={{ color: '#555' }}>{m.yes_sub_title || '-'}</td>
+                      <td style={{ color: '#555' }}>{m.no_sub_title || '-'}</td>
+                      <td style={{ fontWeight: 'bold', color: '#28a745' }}>{m.yes_bid}¢</td>
+                      <td style={{ fontWeight: 'bold', color: '#007bff' }}>{m.yes_ask}¢</td>
+                      <td style={{ fontWeight: 'bold', color: '#28a745' }}>{m.no_bid}¢</td>
+                      <td style={{ fontWeight: 'bold', color: '#007bff' }}>{m.no_ask}¢</td>
+                      <td>{m.volume.toLocaleString()}</td>
+                      <td>{m.open_interest.toLocaleString()}</td>
+                      <td style={{ whiteSpace: 'nowrap' }}>{timeStr}</td>
+                      <td>
+                        <button onClick={() => setTradeModal(m)} style={{
+                          padding: '4px 8px', background: '#007bff', color: 'white', border: 'none', 
+                          borderRadius: '3px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold'
+                        }}>Trade</button>
+                      </td>
+                    </tr>
+                  )
+                })
               )}
             </tbody>
           </table>
@@ -139,7 +152,7 @@ function App() {
                 <th>Payout if Right</th>
                 <th>Market Value</th>
                 <th>Unrealized Return</th>
-                <th>DTE</th>
+                <th>Time Left</th>
                 <th>Allocation</th>
                 <th>Action</th>
               </tr>
@@ -149,8 +162,11 @@ function App() {
                 <tr><td colSpan="11" style={{ padding: '20px', textAlign: 'center', color: '#999' }}>No open positions</td></tr>
               ) : (
                 positions.map((p, i) => {
-                  const allocation = totalAllocation > 0 ? (p.market_value / totalAllocation * 100) : 0
+                  const allocation = portfolioValue > 0 ? (p.market_value / portfolioValue * 100) : 0
                   const returnPct = p.cost > 0 ? (p.unrealized_return / p.cost * 100) : 0
+                  const timeStr = p.days_left > 0 
+                    ? `${p.days_left}d ${p.hours_left}h`
+                    : `${p.hours_left}h ${p.minutes_left}m`
                   
                   return (
                     <tr key={i} style={{ borderBottom: '1px solid #eee' }}>
@@ -164,7 +180,7 @@ function App() {
                       <td style={{ color: p.unrealized_return >= 0 ? '#28a745' : '#dc3545', fontWeight: 'bold' }}>
                         ${p.unrealized_return.toFixed(2)} ({returnPct >= 0 ? '+' : ''}{returnPct.toFixed(1)}%)
                       </td>
-                      <td>{p.dte}d</td>
+                      <td style={{ whiteSpace: 'nowrap' }}>{timeStr}</td>
                       <td>{allocation.toFixed(1)}%</td>
                       <td>
                         <button onClick={() => setCloseModal(p)} style={{
