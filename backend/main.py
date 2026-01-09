@@ -2,7 +2,6 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timezone, timedelta
 from pydantic import BaseModel
-
 from kalshi_client import KalshiTrader
 
 app = FastAPI()
@@ -18,6 +17,10 @@ class TradeRequest(BaseModel):
     price: int
 
 
+class CancelRequest(BaseModel):
+    order_id: str
+
+
 @app.get("/api/balance")
 def get_balance():
     return trader.get_balance()
@@ -28,17 +31,16 @@ def get_markets():
     now = datetime.now(timezone.utc)
     max_close_time = now + timedelta(hours=72)
     max_close_ts = int(max_close_time.timestamp())
-    
     all_markets = trader.get_markets(status="open", max_close_ts=max_close_ts)
-    markets = []
     
+    markets = []
     for market in all_markets:
         close_time = market.close_time
         if isinstance(close_time, str):
             close_time = datetime.fromisoformat(close_time.replace("Z", "+00:00"))
         if close_time.tzinfo is None:
             close_time = close_time.replace(tzinfo=timezone.utc)
-
+        
         time_left = close_time - now
         days = time_left.days
         hours = time_left.seconds // 3600
@@ -49,10 +51,10 @@ def get_markets():
         yes_ask = getattr(market, "yes_ask", 0) or 0
         no_bid = getattr(market, "no_bid", 0) or 0
         no_ask = getattr(market, "no_ask", 0) or 0
-
+        
         if yes_ask >= 100 or yes_ask <= 0 or yes_bid >= 100 or yes_bid <= 0:
             continue
-
+        
         markets.append({
             "ticker": market.ticker,
             "title": getattr(market, "title", market.ticker),
@@ -71,9 +73,29 @@ def get_markets():
             "minutes_left": minutes,
             "total_seconds_left": total_seconds,
         })
-
+    
     markets.sort(key=lambda m: m["total_seconds_left"])
     return {"markets": markets, "count": len(markets)}
+
+
+@app.get("/api/orders")
+def get_orders():
+    orders = trader.get_orders(status="resting")
+    
+    order_list = []
+    for order in orders:
+        order_list.append({
+            "order_id": order.order_id,
+            "ticker": order.ticker,
+            "side": order.side,
+            "action": order.action,
+            "price": getattr(order, f"{order.side}_price", 0),
+            "remaining_count": order.remaining_count,
+            "initial_count": order.initial_count,
+            "created_time": order.created_time,
+        })
+    
+    return {"orders": order_list, "count": len(order_list)}
 
 
 @app.get("/api/positions")
@@ -86,7 +108,6 @@ def get_positions():
     
     tickers = [pos.ticker for pos in market_positions]
     markets_list = trader.get_markets(tickers=tickers)
-    
     markets_data = {}
     now = datetime.now(timezone.utc)
     
@@ -152,7 +173,7 @@ def get_positions():
             "no_bid": market_info["no_bid"],
             "no_ask": market_info["no_ask"],
         })
-
+    
     return {"positions": positions, "count": len(positions)}
 
 
@@ -196,5 +217,14 @@ def close_position(request: TradeRequest):
         )
         
         return {"success": True, "order": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/cancel")
+def cancel_order(request: CancelRequest):
+    try:
+        result = trader.cancel_order(request.order_id)
+        return {"success": True, "result": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

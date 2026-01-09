@@ -126,3 +126,26 @@ class KalshiTrader:
             f"{side}_price": price
         }
         return self._request("POST", "/portfolio/orders", json=payload)
+
+    def get_orders(self, status: str = "resting") -> list:
+        """Get orders by status."""
+        all_orders = []
+        cursor = None
+        
+        while True:
+            params = {"status": status, "limit": 1000}
+            if cursor:
+                params["cursor"] = cursor
+            
+            data = self._request("GET", "/portfolio/orders", params=params)
+            all_orders.extend(SimpleNamespace(**o) for o in data.get("orders", []))
+            
+            cursor = data.get("cursor")
+            if not cursor:
+                break
+        
+        return all_orders
+
+    def cancel_order(self, order_id: str):
+        """Cancel a pending order."""
+        return self._request("DELETE", f"/portfolio/orders/{order_id}")
