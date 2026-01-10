@@ -152,13 +152,22 @@ def get_positions():
         fees_paid = float(pos.fees_paid_dollars)
         cost_with_fees = total_cost + fees_paid
         avg_price_with_fees = (cost_with_fees / contracts * 100) if contracts != 0 else 0
+        
+        # Determine side based on position sign (positive = yes, negative = no)
+        side = "yes" if contracts > 0 else "no"
+        contracts = abs(contracts)
+        
+        # Use appropriate bid for market value calculation
+        current_bid = market_info["yes_bid"] if side == "yes" else market_info["no_bid"]
+        
         payout_if_right = contracts * 1.0
-        market_value = contracts * market_info["last_price"] / 100
+        market_value = contracts * current_bid / 100
         unrealized_return = market_value - cost_with_fees
         
         positions.append({
             "ticker": pos.ticker,
-            "last_price": market_info["last_price"],
+            "side": side,
+            "current_bid": current_bid,
             "contracts": contracts,
             "avg_price": avg_price_with_fees,
             "cost": cost_with_fees,

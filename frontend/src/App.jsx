@@ -24,6 +24,7 @@ function App() {
   const [filters, setFilters] = useState({ highProb: false, tightSpread: false, highVolume: false })
   const [tradeModal, setTradeModal] = useState(null)
   const [closeModal, setCloseModal] = useState(null)
+  const [tradeSide, setTradeSide] = useState('yes')
 
   useEffect(() => { fetchData() }, [])
 
@@ -49,9 +50,9 @@ function App() {
 
   const filteredMarkets = markets.filter(m => {
     const spread = m.yes_ask - m.yes_bid
-    return (!filters.highProb || m.yes_bid >= 98) &&
-           (!filters.tightSpread || spread <= 2) &&
-           (!filters.highVolume || m.volume >= 10000)
+    return (!filters.highProb || (m.yes_bid >= 98 || m.no_bid >= 98)) &&
+          (!filters.tightSpread || spread <= 2) &&
+          (!filters.highVolume || m.volume >= 10000)
   })
 
   const cancelOrder = async (orderId) => {
@@ -119,7 +120,7 @@ function App() {
 
       <section>
         <div className="section-header">
-          <h2>Markets (72h)</h2>
+          <h2>Markets ({filteredMarkets.length} expiring in 72h)</h2>
           <div className="filters">
             <FilterBtn active={filters.highProb} onClick={() => setFilters({...filters, highProb: !filters.highProb})}>
               High Prob ≥98¢
@@ -165,7 +166,7 @@ function App() {
                   <td>{m.no_ask}¢</td>
                   <td>{m.volume.toLocaleString()}</td>
                   <td>{m.days_left > 0 ? `${m.days_left}d ${m.hours_left}h` : `${m.hours_left}h ${m.minutes_left}m`}</td>
-                  <td><button className="btn-sm btn-success" onClick={() => setTradeModal(m)}>Trade</button></td>
+                  <td><button className="btn-sm btn-success" onClick={() => { setTradeSide('yes'); setTradeModal(m); }}>Trade</button></td>
                 </tr>
               ))}
             </tbody>
@@ -214,7 +215,8 @@ function App() {
             <thead>
               <tr>
                 <th>Ticker</th>
-                <th>Last</th>
+                <th>Side</th>
+                <th>Bid</th>
                 <th>Contracts</th>
                 <th>Avg Price</th>
                 <th>Cost</th>
@@ -226,7 +228,7 @@ function App() {
               </tr>
             </thead>
             <tbody>
-              {positions.length === 0 && <tr><td colSpan="10">No positions</td></tr>}
+              {positions.length === 0 && <tr><td colSpan="11">No positions</td></tr>}
               {positions.map(p => {
                 const retPct = (p.unrealized_return / p.cost) * 100
                 const payoutPct = ((p.payout_if_right / p.cost - 1) * 100).toFixed(0)
@@ -234,7 +236,8 @@ function App() {
                 return (
                   <tr key={p.ticker}>
                     <td>{p.ticker}</td>
-                    <td>{p.last_price}¢</td>
+                    <td className="uppercase">{p.side}</td>
+                    <td>{p.current_bid}¢</td>
                     <td>{p.contracts}</td>
                     <td>{p.avg_price.toFixed(2)}¢</td>
                     <td>${p.cost.toFixed(2)}</td>
@@ -257,9 +260,29 @@ function App() {
         <Modal title={`Trade: ${tradeModal.ticker}`} onClose={() => setTradeModal(null)}>
           <p className="subtitle">{tradeModal.title}</p>
           <form onSubmit={(e) => submitTrade(e, tradeModal.ticker)}>
-            <label>Side<select name="side" required><option value="yes">Yes</option><option value="no">No</option></select></label>
+            <label>Side
+              <select 
+                name="side" 
+                required 
+                value={tradeSide} 
+                onChange={(e) => setTradeSide(e.target.value)}
+              >
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            </label>
             <label>Quantity<input type="number" name="quantity" min="1" required /></label>
-            <label>Price (¢)<input type="number" name="price" min="1" max="99" defaultValue={tradeModal.yes_ask} required /></label>
+            <label>Price (¢)
+              <input 
+                type="number" 
+                name="price" 
+                min="1" 
+                max="99" 
+                key={tradeSide} 
+                defaultValue={tradeSide === 'yes' ? tradeModal.yes_ask : tradeModal.no_ask} 
+                required 
+              />
+            </label>
             <div className="btn-group">
               <button type="submit" className="btn-primary">Submit</button>
               <button type="button" className="btn-secondary" onClick={() => setTradeModal(null)}>Cancel</button>
@@ -270,11 +293,21 @@ function App() {
 
       {closeModal && (
         <Modal title={`Close: ${closeModal.ticker}`} onClose={() => setCloseModal(null)}>
-          <p className="subtitle">{closeModal.contracts} contracts @ {closeModal.avg_price.toFixed(2)}¢ | Bid {closeModal.yes_bid}¢ / Ask {closeModal.yes_ask}¢</p>
+          <p className="subtitle">
+            {closeModal.contracts} {closeModal.side.toUpperCase()} contracts @ {closeModal.avg_price.toFixed(2)}¢ | 
+            Current Bid: {closeModal.current_bid}¢
+          </p>
           <form onSubmit={(e) => submitClose(e, closeModal.ticker)}>
-            <label>Side<select name="side" required><option value="yes">Yes</option><option value="no">No</option></select></label>
-            <label>Quantity<input type="number" name="quantity" min="1" max={closeModal.contracts} defaultValue={closeModal.contracts} required /></label>
-            <label>Price (¢)<input type="number" name="price" min="1" max="99" defaultValue={closeModal.yes_bid} required /></label>
+            <label>Side
+              <input type="text" value={closeModal.side.toUpperCase()} disabled style={{background: '#f3f4f6', cursor: 'not-allowed'}} />
+              <input type="hidden" name="side" value={closeModal.side} />
+            </label>
+            <label>Quantity
+              <input type="number" name="quantity" min="1" max={closeModal.contracts} defaultValue={closeModal.contracts} required />
+            </label>
+            <label>Price (¢)
+              <input type="number" name="price" min="1" max="99" defaultValue={closeModal.current_bid} required />
+            </label>
             <div className="btn-group">
               <button type="submit" className="btn-primary">Submit</button>
               <button type="button" className="btn-secondary" onClick={() => setCloseModal(null)}>Cancel</button>
