@@ -27,13 +27,16 @@ function App() {
   const [tradeSide, setTradeSide] = useState('yes')
   const [strategyEnabled, setStrategyEnabled] = useState(false)
   const [strategyConfig, setStrategyConfig] = useState({
-  capital_allocation: 50,
-  position_size: 5,
-  min_probability: 98,
-  scan_frequency: 15,
-  stop_loss: 50,
-  max_time_to_expiry: 72
-})
+    capital_allocation: 50,
+    position_size: 5,
+    min_probability: 98,
+    scan_frequency: 15,
+    stop_loss: 50,
+    max_time_to_expiry: 72,
+    max_pending_age_minutes: 5,
+    order_delay_seconds: 2,
+    max_positions: 20
+  })
 
   useEffect(() => {
     fetchData()
@@ -252,6 +255,32 @@ function App() {
                 max="168"
                 value={strategyConfig.max_time_to_expiry}
                 onChange={(e) => setStrategyConfig({...strategyConfig, max_time_to_expiry: parseInt(e.target.value)})}
+              />
+            </label>
+          </div>
+
+          <div className="param-group">
+            <label>
+              Max Positions: {strategyConfig.max_positions}
+              <input 
+                type="number" 
+                min="5" 
+                max="50"
+                value={strategyConfig.max_positions}
+                onChange={(e) => setStrategyConfig({...strategyConfig, max_positions: parseInt(e.target.value)})}
+              />
+            </label>
+          </div>
+
+          <div className="param-group">
+            <label>
+              Pending Order Max Age (min): {strategyConfig.max_pending_age_minutes}
+              <input 
+                type="number" 
+                min="1" 
+                max="30"
+                value={strategyConfig.max_pending_age_minutes}
+                onChange={(e) => setStrategyConfig({...strategyConfig, max_pending_age_minutes: parseInt(e.target.value)})}
               />
             </label>
           </div>

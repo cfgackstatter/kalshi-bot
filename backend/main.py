@@ -249,7 +249,10 @@ strategy_config = {
     "min_probability": 98,
     "scan_frequency": 15,
     "stop_loss": 50,
-    "max_time_to_expiry": 72,  # NEW: hours
+    "max_time_to_expiry": 72,
+    "max_pending_age_minutes": 5,
+    "order_delay_seconds": 2,
+    "max_positions": 20,
     "enabled": False
 }
 strategy = HighProbStrategy(trader, strategy_config)
