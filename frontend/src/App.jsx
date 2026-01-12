@@ -25,8 +25,20 @@ function App() {
   const [tradeModal, setTradeModal] = useState(null)
   const [closeModal, setCloseModal] = useState(null)
   const [tradeSide, setTradeSide] = useState('yes')
+  const [strategyEnabled, setStrategyEnabled] = useState(false)
+  const [strategyConfig, setStrategyConfig] = useState({
+  capital_allocation: 50,
+  position_size: 5,
+  min_probability: 98,
+  scan_frequency: 15,
+  stop_loss: 50,
+  max_time_to_expiry: 72
+})
 
-  useEffect(() => { fetchData() }, [])
+  useEffect(() => {
+    fetchData()
+    fetchStrategyConfig()
+  }, [])
 
   const fetchData = async () => {
     setLoading(true)
@@ -45,6 +57,37 @@ function App() {
       alert('Error: ' + err.message)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchStrategyConfig = async () => {
+    try {
+      const res = await axios.get(`${API}/strategy`)
+      setStrategyConfig(res.data)
+      setStrategyEnabled(res.data.enabled)
+    } catch (err) {
+      console.error('Failed to load strategy config')
+    }
+  }
+
+  const updateStrategyConfig = async (newConfig) => {
+    try {
+      await axios.put(`${API}/strategy/config`, newConfig)
+    } catch (err) {
+      console.error('Failed to update config')
+    }
+  }
+
+  const toggleStrategy = async () => {
+    try {
+      if (strategyEnabled) {
+        await axios.post(`${API}/strategy/stop`)
+      } else {
+        await axios.post(`${API}/strategy/start`)
+      }
+      setStrategyEnabled(!strategyEnabled)
+    } catch (err) {
+      alert('Error: ' + err.message)
     }
   }
 
@@ -117,6 +160,112 @@ function App() {
           {loading ? 'Loading...' : 'Refresh'}
         </button>
       </div>
+
+      <section className="strategy-panel">
+        <div className="strategy-status">
+          <div>
+            <h2>High Probability Strategy</h2>
+            <div className="status-indicator">
+              <span className={`status-dot ${strategyEnabled ? 'running' : 'stopped'}`}></span>
+              <span className="status-text">{strategyEnabled ? 'Running' : 'Stopped'}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="strategy-params">
+          <div className="param-group">
+            <label>
+              Capital Allocation: {strategyConfig.capital_allocation}%
+              <input 
+                type="range" 
+                min="10" 
+                max="100" 
+                step="5"
+                value={strategyConfig.capital_allocation}
+                onChange={(e) => setStrategyConfig({...strategyConfig, capital_allocation: parseInt(e.target.value)})}
+              />
+            </label>
+          </div>
+          
+          <div className="param-group">
+            <label>
+              Position Size: {strategyConfig.position_size}%
+              <input 
+                type="range" 
+                min="1" 
+                max="20" 
+                step="1"
+                value={strategyConfig.position_size}
+                onChange={(e) => setStrategyConfig({...strategyConfig, position_size: parseInt(e.target.value)})}
+              />
+            </label>
+          </div>
+
+          <div className="param-group">
+            <label>
+              Min Probability: {strategyConfig.min_probability}¢
+              <input 
+                type="number" 
+                min="95" 
+                max="99"
+                value={strategyConfig.min_probability}
+                onChange={(e) => setStrategyConfig({...strategyConfig, min_probability: parseInt(e.target.value)})}
+              />
+            </label>
+          </div>
+
+          <div className="param-group">
+            <label>
+              Scan Every:
+              <select 
+                value={strategyConfig.scan_frequency}
+                onChange={(e) => setStrategyConfig({...strategyConfig, scan_frequency: parseInt(e.target.value)})}
+              >
+                <option value="5">5 min</option>
+                <option value="10">10 min</option>
+                <option value="15">15 min</option>
+                <option value="30">30 min</option>
+                <option value="60">60 min</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="param-group">
+            <label>
+              Stop Loss: {strategyConfig.stop_loss}¢
+              <input 
+                type="number" 
+                min="1" 
+                max="99"
+                value={strategyConfig.stop_loss}
+                onChange={(e) => setStrategyConfig({...strategyConfig, stop_loss: parseInt(e.target.value)})}
+              />
+            </label>
+          </div>
+
+          <div className="param-group">
+            <label>
+              Max Time to Expiry (hrs): {strategyConfig.max_time_to_expiry}
+              <input 
+                type="number" 
+                min="1" 
+                max="168"
+                value={strategyConfig.max_time_to_expiry}
+                onChange={(e) => setStrategyConfig({...strategyConfig, max_time_to_expiry: parseInt(e.target.value)})}
+              />
+            </label>
+          </div>
+        </div>
+
+        <div className="strategy-controls">
+          <button 
+            className={`btn-toggle ${strategyEnabled ? 'active' : ''}`}
+            onClick={toggleStrategy}
+          >
+            {strategyEnabled ? 'Stop' : 'Start'}
+          </button>
+        </div>
+      </section>
 
       <section>
         <div className="section-header">

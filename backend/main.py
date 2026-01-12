@@ -3,6 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timezone, timedelta
 from pydantic import BaseModel
 from kalshi_client import KalshiTrader
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from strategy import HighProbStrategy
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"])
@@ -151,7 +153,7 @@ def get_positions():
         total_cost = float(pos.market_exposure_dollars)
         fees_paid = float(pos.fees_paid_dollars)
         cost_with_fees = total_cost + fees_paid
-        avg_price_with_fees = (cost_with_fees / contracts * 100) if contracts != 0 else 0
+        avg_price_with_fees = (cost_with_fees / abs(contracts) * 100) if contracts != 0 else 0
         
         # Determine side based on position sign (positive = yes, negative = no)
         side = "yes" if contracts > 0 else "no"
@@ -237,3 +239,77 @@ def cancel_order(request: CancelRequest):
         return {"success": True, "result": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# Global strategy state
+scheduler = AsyncIOScheduler()
+strategy_config = {
+    "capital_allocation": 50,
+    "position_size": 5,
+    "min_probability": 98,
+    "scan_frequency": 15,
+    "stop_loss": 50,
+    "max_time_to_expiry": 72,  # NEW: hours
+    "enabled": False
+}
+strategy = HighProbStrategy(trader, strategy_config)
+
+@app.on_event("startup")
+async def startup_event():
+    scheduler.start()
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    scheduler.shutdown()
+
+@app.post("/api/strategy/start")
+def start_strategy():
+    strategy_config["enabled"] = True
+    strategy.config = strategy_config  # Update config
+    
+    # Remove existing job if any
+    if scheduler.get_job("strategy_scan"):
+        scheduler.remove_job("strategy_scan")
+    if scheduler.get_job("strategy_exits"):
+        scheduler.remove_job("strategy_exits")
+    
+    # Schedule scanning
+    scheduler.add_job(
+        strategy.scan_and_execute,
+        "interval",
+        minutes=strategy_config["scan_frequency"],
+        id="strategy_scan"
+    )
+    
+    # Schedule exit monitoring (every 5 min)
+    scheduler.add_job(
+        strategy.check_exits,
+        "interval",
+        minutes=5,
+        id="strategy_exits"
+    )
+    
+    return {"success": True, "status": "started"}
+
+@app.post("/api/strategy/stop")
+def stop_strategy():
+    strategy_config["enabled"] = False
+    
+    if scheduler.get_job("strategy_scan"):
+        scheduler.remove_job("strategy_scan")
+    if scheduler.get_job("strategy_exits"):
+        scheduler.remove_job("strategy_exits")
+    
+    return {"success": True, "status": "stopped"}
+
+@app.put("/api/strategy/config")
+def update_config(config: dict):
+    strategy_config.update(config)
+    strategy.config = strategy_config
+    
+    # Restart if running
+    if strategy_config["enabled"]:
+        stop_strategy()
+        start_strategy()
+    
+    return {"success": True, "config": strategy_config}
