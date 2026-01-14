@@ -1,89 +1,112 @@
 from datetime import datetime, timezone, timedelta
 from time import sleep
 from kalshi_client import KalshiTrader
+import math
 
 class HighProbStrategy:
     def __init__(self, trader: KalshiTrader, config: dict):
         self.trader = trader
         self.config = config
-        
+
     def scan_and_execute(self):
         """Main strategy execution with iterative best-opportunity selection."""
         print("=== Starting strategy scan ===")
-        
+        print(f"Config: {self.config}")
+
         # Clean up stale pending orders first
         self._cleanup_pending_orders()
-        
+
+        # Fetch state ONCE at start
+        balance = self.trader.get_balance()["balance"]
+        positions_response = self.trader.get_positions()
+        pending_orders = self.trader.get_orders(status='resting')
+        market_positions = getattr(positions_response, "market_positions", [])
+
+        # Calculate total portfolio value (cash + positions)
+        positions_value = sum(
+            abs(float(pos.market_exposure_dollars)) + abs(float(pos.fees_paid_dollars))
+            for pos in market_positions
+        )
+        pending_value = sum(
+            (order.remaining_count * getattr(order, f"{order.side}_price", 0) / 100)
+            for order in pending_orders
+        )
+
+        total_portfolio = balance + positions_value + pending_value
+        allocated_capital = total_portfolio * (self.config["capital_allocation"] / 100)
+        used_capital = positions_value + pending_value
+        held_tickers = {pos.ticker for pos in market_positions}
+        held_tickers.update({order.ticker for order in pending_orders})
+
+        print(f"Portfolio: cash=${balance:.2f} + positions=${positions_value:.2f} = ${total_portfolio:.2f}")
+        print(f"Allocated: ${allocated_capital:.2f} ({self.config['capital_allocation']}%)")
+        print(f"Used: ${used_capital:.2f}, Available: ${allocated_capital - used_capital:.2f}")
+
         # Fetch and evaluate all markets once
         markets = self._fetch_markets()
-        all_opportunities = self._evaluate_all_markets(markets)
-        
+        all_opportunities = self._evaluate_all_markets(markets, total_portfolio)
+
         if not all_opportunities:
             print("No eligible opportunities found")
             return
-        
+
         # Sort by yield once (descending)
         all_opportunities.sort(key=lambda x: x["yield"], reverse=True)
         print(f"Found {len(all_opportunities)} eligible opportunities")
-        
+
         # Iteratively place orders for best opportunities
         orders_placed = 0
-        max_iterations = 50
-        
-        for iteration in range(max_iterations):
-            # Refresh state
-            state = self._get_current_state()
-            
-            # Check exit conditions
-            if not self._can_place_order(state):
-                print(f"Exit: {state['exit_reason']}")
+
+        for opportunity in all_opportunities:
+            # Check if already held
+            if opportunity["ticker"] in held_tickers:
+                continue
+
+            # Check capital constraint
+            if used_capital + opportunity["cost"] > allocated_capital:
+                print(f"Exit: Capital exhausted ({used_capital:.2f}/{allocated_capital:.2f})")
                 break
-            
-            # Filter to opportunities not already held
-            eligible = [
-                opp for opp in all_opportunities 
-                if opp["ticker"] not in state["held_tickers"]
-            ]
-            
-            if not eligible:
-                print("Exit: No more eligible opportunities")
-                break
-            
-            # Take best opportunity
-            best = eligible[0]
-            
+
             # Place order
-            if self._place_order(best):
+            if self._place_order(opportunity):
                 orders_placed += 1
-                print(f"[{iteration+1}] Ordered {best['contracts']} {best['side']} @ {best['price']}¢ on {best['ticker']} (yield: {best['yield']:.1f}%)")
-            
-            # Brief pause for order processing
-            sleep(self.config.get("order_delay_seconds", 2))
-        
+                # Update state locally
+                used_capital += opportunity["cost"]
+                held_tickers.add(opportunity["ticker"])
+
+                print(f"[{orders_placed}] Ordered {opportunity['contracts']} {opportunity['side']} "
+                      f"@ {opportunity['price']}¢ on {opportunity['ticker']} "
+                      f"(yield: {opportunity['yield']:.1f}%)")
+
+                # Brief pause
+                sleep(self.config.get("order_delay_seconds", 0.5))
+
         print(f"=== Scan complete: {orders_placed} orders placed ===")
-    
+
     def check_exits(self):
         """Monitor positions for stop-loss exits."""
         positions_response = self.trader.get_positions()
         market_positions = getattr(positions_response, "market_positions", [])
-        
+
         if not market_positions:
             return
-        
+
         tickers = [pos.ticker for pos in market_positions]
         markets = self.trader.get_markets(tickers=tickers)
         markets_dict = {m.ticker: m for m in markets}
-        
+
         for pos in market_positions:
             market = markets_dict.get(pos.ticker)
             if not market:
                 continue
-            
+
             contracts = pos.position
             side = "yes" if contracts > 0 else "no"
             contracts = abs(contracts)
+
             current_bid = market.yes_bid if side == "yes" else market.no_bid
-            
+
+            # Fixed stop-loss at 50 cents (good for ~99 cent entries)
             if current_bid <= self.config["stop_loss"]:
                 try:
                     self.trader.close_position(
@@ -95,96 +118,97 @@ class HighProbStrategy:
                     print(f"Stop-loss: closed {contracts} {side} @ {current_bid}¢ on {pos.ticker}")
                 except Exception as e:
                     print(f"Exit failed for {pos.ticker}: {e}")
-    
+
     def _cleanup_pending_orders(self):
         """Cancel orders older than max_age_minutes."""
         max_age = self.config.get("max_pending_age_minutes", 5)
         try:
-            pending = self.trader.get_pending_orders()
+            pending = self.trader.get_orders(status='resting')
             if not pending:
                 return
-            
+
             now = datetime.now(timezone.utc)
             for order in pending:
-                created = order.created_time
-                if isinstance(created, str):
-                    created = datetime.fromisoformat(created.replace("Z", "+00:00"))
-                if created.tzinfo is None:
-                    created = created.replace(tzinfo=timezone.utc)
-                
+                created = self._parse_datetime(order.created_time)
                 age_minutes = (now - created).total_seconds() / 60
+
                 if age_minutes > max_age:
                     self.trader.cancel_order(order.order_id)
                     print(f"Cancelled stale order: {order.ticker} (age: {age_minutes:.1f}min)")
         except Exception as e:
             print(f"Cleanup failed: {e}")
-    
+
     def _fetch_markets(self):
         """Fetch all eligible markets."""
         now = datetime.now(timezone.utc)
         max_close_time = now + timedelta(hours=self.config["max_time_to_expiry"])
         return self.trader.get_markets(status="open", max_close_ts=int(max_close_time.timestamp()))
-    
-    def _evaluate_all_markets(self, markets):
+
+    def _evaluate_all_markets(self, markets, balance: float):
         """Evaluate all markets and return list of opportunities."""
         opportunities = []
         for market in markets:
-            # Evaluate both YES and NO sides
             for side in ["yes", "no"]:
-                opp = self._evaluate_side(market, side)
+                opp = self._evaluate_side(market, side, balance)
                 if opp:
                     opportunities.append(opp)
         return opportunities
-    
-    def _evaluate_side(self, market, side: str):
+
+    def _evaluate_side(self, market, side: str, balance: float):
         """Evaluate one side of market."""
         bid = getattr(market, f"{side}_bid", 0)
         ask = getattr(market, f"{side}_ask", 0)
-        
+
         # Check minimum probability
         if bid < self.config["min_probability"]:
             return None
-        
+
         # Check valid ask
         if ask >= 100 or ask <= 0:
             return None
         
-        # Calculate optimal order price (ask + 1, capped at 99)
+        # Check spread constraint
+        spread = ask - bid
+        if spread > self.config.get("max_spread", 99):
+            return None
+
+        # Check volume constraint
+        volume = getattr(market, "volume", 0) or 0
+        if volume < self.config.get("min_volume", 0):
+            return None
+
+        # Use ask + 1 to avoid taker fees (as per user preference)
         order_price = min(ask + 1, 99)
-        
+
         # Calculate contracts based on position size
-        balance = self.trader.get_balance()["balance"]
-        allocated_capital = balance * (self.config["capital_allocation"] / 100)
-        position_capital = allocated_capital * (self.config["position_size"] / 100)
-        
+        position_capital = balance * (self.config["position_size"] / 100)
         entry_price = order_price / 100
         contracts = int(position_capital / entry_price)
-        
+
         if contracts < 2:
             return None
-        
-        # Calculate yield
+
+        # Calculate yield with correct fee formula: ceil(0.07 * C * P * (1-P))
         total_cost = contracts * entry_price
-        total_fees = contracts * 0.07  # Settlement fee
+        total_fees = math.ceil(0.07 * contracts * entry_price * (1 - entry_price) * 100) / 100
         payout = contracts * 1.0
         net_profit = payout - total_cost - total_fees
-        
+
         if net_profit <= 0:
             return None
-        
-        # Calculate hours to expiry
-        close_time = market.close_time
-        if isinstance(close_time, str):
-            close_time = datetime.fromisoformat(close_time.replace("Z", "+00:00"))
-        if close_time.tzinfo is None:
-            close_time = close_time.replace(tzinfo=timezone.utc)
-        
+
+        # Calculate annualized yield
+        close_time = self._parse_datetime(market.close_time)
         hours = (close_time - datetime.now(timezone.utc)).total_seconds() / 3600
+
         if hours <= 0:
             return None
-        
+
+        if hours > self.config["max_time_to_expiry"]:
+            return None
+
         annualized_yield = (net_profit / total_cost) * (8760 / hours) * 100
-        
+
         return {
             "ticker": market.ticker,
             "side": side,
@@ -193,54 +217,15 @@ class HighProbStrategy:
             "yield": annualized_yield,
             "cost": total_cost
         }
-    
-    def _get_current_state(self):
-        """Get current portfolio state."""
-        balance = self.trader.get_balance()["balance"]
-        positions_response = self.trader.get_positions()
-        pending_orders = self.trader.get_pending_orders()
-        
-        market_positions = getattr(positions_response, "market_positions", [])
-        
-        # Calculate used capital
-        positions_value = sum(
-            abs(pos.market_exposure_dollars) + abs(pos.fees_paid_dollars)
-            for pos in market_positions
-        )
-        
-        pending_value = sum(
-            (order.quantity * order.price / 100)
-            for order in (pending_orders or [])
-        )
-        
-        # Calculate available capital
-        allocated_capital = balance * (self.config["capital_allocation"] / 100)
-        used_capital = positions_value + pending_value
-        remaining = allocated_capital - used_capital
-        position_capital = allocated_capital * (self.config["position_size"] / 100)
-        
-        # Get held tickers
-        held_tickers = {pos.ticker for pos in market_positions}
-        held_tickers.update({order.ticker for order in (pending_orders or [])})
-        
-        # Determine exit reason if can't continue
-        exit_reason = None
-        if remaining < position_capital:
-            exit_reason = "Capital exhausted"
-        elif len(market_positions) + len(pending_orders or []) >= self.config.get("max_positions", 20):
-            exit_reason = "Max positions reached"
-        
-        return {
-            "remaining_capital": remaining,
-            "position_capital": position_capital,
-            "held_tickers": held_tickers,
-            "exit_reason": exit_reason
-        }
-    
-    def _can_place_order(self, state):
-        """Check if we can place another order."""
-        return state["exit_reason"] is None and state["remaining_capital"] >= state["position_capital"]
-    
+
+    def _parse_datetime(self, dt):
+        """Parse datetime string to timezone-aware datetime."""
+        if isinstance(dt, str):
+            dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+
     def _place_order(self, opportunity):
         """Place order for opportunity."""
         try:

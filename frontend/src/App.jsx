@@ -9,10 +9,12 @@ const FilterBtn = ({ active, onClick, children }) => (
 )
 
 const Modal = ({ title, onClose, children }) => (
-  <>
-    <div className="modal-overlay" onClick={onClose} />
-    <div className="modal"><h3>{title}</h3>{children}</div>
-  </>
+  <div className="modal-overlay" onClick={onClose}>
+    <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <h3>{title}</h3>
+      {children}
+    </div>
+  </div>
 )
 
 function App() {
@@ -26,16 +28,18 @@ function App() {
   const [closeModal, setCloseModal] = useState(null)
   const [tradeSide, setTradeSide] = useState('yes')
   const [strategyEnabled, setStrategyEnabled] = useState(false)
+  const [showAdvanced, setShowAdvanced] = useState(false)
   const [strategyConfig, setStrategyConfig] = useState({
     capital_allocation: 50,
     position_size: 5,
     min_probability: 98,
     scan_frequency: 15,
     stop_loss: 50,
-    max_time_to_expiry: 72,
+    max_time_to_expiry: 1,
     max_pending_age_minutes: 5,
-    order_delay_seconds: 2,
-    max_positions: 20
+    order_delay_seconds: 0.5,
+    max_spread: 2,
+    min_volume: 1
   })
 
   useEffect(() => {
@@ -81,6 +85,12 @@ function App() {
     }
   }
 
+  const handleConfigChange = async (key, value) => {
+    const newConfig = { ...strategyConfig, [key]: value }
+    setStrategyConfig(newConfig)
+    await updateStrategyConfig(newConfig)
+  }
+
   const toggleStrategy = async () => {
     try {
       if (strategyEnabled) {
@@ -96,9 +106,11 @@ function App() {
 
   const filteredMarkets = markets.filter(m => {
     const spread = m.yes_ask - m.yes_bid
-    return (!filters.highProb || (m.yes_bid >= 98 || m.no_bid >= 98)) &&
-          (!filters.tightSpread || spread <= 2) &&
-          (!filters.highVolume || m.volume >= 10000)
+    return (
+      (!filters.highProb || (m.yes_bid >= 98 || m.no_bid >= 98)) &&
+      (!filters.tightSpread || spread <= 2) &&
+      (!filters.highVolume || m.volume >= 10000)
+    )
   })
 
   const cancelOrder = async (orderId) => {
@@ -164,135 +176,197 @@ function App() {
         </button>
       </div>
 
-      <section className="strategy-panel">
-        <div className="strategy-status">
-          <div>
+      <section className="strategy-panel-improved">
+        <div className="strategy-header">
+          <div className="strategy-title">
             <h2>High Probability Strategy</h2>
             <div className="status-indicator">
               <span className={`status-dot ${strategyEnabled ? 'running' : 'stopped'}`}></span>
               <span className="status-text">{strategyEnabled ? 'Running' : 'Stopped'}</span>
             </div>
           </div>
-        </div>
-
-        <div className="strategy-params">
-          <div className="param-group">
-            <label>
-              Capital Allocation: {strategyConfig.capital_allocation}%
-              <input 
-                type="range" 
-                min="10" 
-                max="100" 
-                step="5"
-                value={strategyConfig.capital_allocation}
-                onChange={(e) => setStrategyConfig({...strategyConfig, capital_allocation: parseInt(e.target.value)})}
-              />
-            </label>
-          </div>
-          
-          <div className="param-group">
-            <label>
-              Position Size: {strategyConfig.position_size}%
-              <input 
-                type="range" 
-                min="1" 
-                max="20" 
-                step="1"
-                value={strategyConfig.position_size}
-                onChange={(e) => setStrategyConfig({...strategyConfig, position_size: parseInt(e.target.value)})}
-              />
-            </label>
-          </div>
-
-          <div className="param-group">
-            <label>
-              Min Probability: {strategyConfig.min_probability}¢
-              <input 
-                type="number" 
-                min="95" 
-                max="99"
-                value={strategyConfig.min_probability}
-                onChange={(e) => setStrategyConfig({...strategyConfig, min_probability: parseInt(e.target.value)})}
-              />
-            </label>
-          </div>
-
-          <div className="param-group">
-            <label>
-              Scan Every:
-              <select 
-                value={strategyConfig.scan_frequency}
-                onChange={(e) => setStrategyConfig({...strategyConfig, scan_frequency: parseInt(e.target.value)})}
-              >
-                <option value="5">5 min</option>
-                <option value="10">10 min</option>
-                <option value="15">15 min</option>
-                <option value="30">30 min</option>
-                <option value="60">60 min</option>
-              </select>
-            </label>
-          </div>
-
-          <div className="param-group">
-            <label>
-              Stop Loss: {strategyConfig.stop_loss}¢
-              <input 
-                type="number" 
-                min="1" 
-                max="99"
-                value={strategyConfig.stop_loss}
-                onChange={(e) => setStrategyConfig({...strategyConfig, stop_loss: parseInt(e.target.value)})}
-              />
-            </label>
-          </div>
-
-          <div className="param-group">
-            <label>
-              Max Time to Expiry (hrs): {strategyConfig.max_time_to_expiry}
-              <input 
-                type="number" 
-                min="1" 
-                max="168"
-                value={strategyConfig.max_time_to_expiry}
-                onChange={(e) => setStrategyConfig({...strategyConfig, max_time_to_expiry: parseInt(e.target.value)})}
-              />
-            </label>
-          </div>
-
-          <div className="param-group">
-            <label>
-              Max Positions: {strategyConfig.max_positions}
-              <input 
-                type="number" 
-                min="5" 
-                max="50"
-                value={strategyConfig.max_positions}
-                onChange={(e) => setStrategyConfig({...strategyConfig, max_positions: parseInt(e.target.value)})}
-              />
-            </label>
-          </div>
-
-          <div className="param-group">
-            <label>
-              Pending Order Max Age (min): {strategyConfig.max_pending_age_minutes}
-              <input 
-                type="number" 
-                min="1" 
-                max="30"
-                value={strategyConfig.max_pending_age_minutes}
-                onChange={(e) => setStrategyConfig({...strategyConfig, max_pending_age_minutes: parseInt(e.target.value)})}
-              />
-            </label>
-          </div>
-        </div>
-
-        <div className="strategy-controls">
-          <button 
+          <button
             className={`btn-toggle ${strategyEnabled ? 'active' : ''}`}
             onClick={toggleStrategy}
           >
             {strategyEnabled ? 'Stop' : 'Start'}
           </button>
+        </div>
+
+        <div className="strategy-config-grid">
+          {/* LEFT COLUMN: Capital Settings */}
+          <div className="config-card">
+            <h3 className="card-title">Capital Settings</h3>
+
+            <div className="param-item">
+              <div className="param-label-row">
+                <label>Capital Allocation</label>
+                <span className="param-value">{strategyConfig.capital_allocation}%</span>
+              </div>
+              <input
+                type="range"
+                min="10"
+                max="100"
+                step="5"
+                value={strategyConfig.capital_allocation}
+                onChange={(e) => handleConfigChange('capital_allocation', parseInt(e.target.value))}
+              />
+              <div className="param-hint">Will use ${(portVal * strategyConfig.capital_allocation / 100).toFixed(2)} of ${portVal.toFixed(2)}</div>
+            </div>
+
+            <div className="param-item">
+              <div className="param-label-row">
+                <label>Position Size</label>
+                <span className="param-value">{strategyConfig.position_size}%</span>
+              </div>
+              <input
+                type="range"
+                min="1"
+                max="20"
+                step="1"
+                value={strategyConfig.position_size}
+                onChange={(e) => handleConfigChange('position_size', parseInt(e.target.value))}
+              />
+              <div className="param-hint">~${(portVal * strategyConfig.position_size / 100).toFixed(2)} per position</div>
+            </div>
+          </div>
+
+          {/* RIGHT COLUMN: Entry Filters */}
+          <div className="config-card">
+            <h3 className="card-title">Entry Filters</h3>
+
+            <div className="param-item">
+              <div className="param-label-row">
+                <label>Min Probability</label>
+                <span className="param-value">{strategyConfig.min_probability}¢</span>
+              </div>
+              <input
+                type="number"
+                min="95"
+                max="99"
+                value={strategyConfig.min_probability}
+                onChange={(e) => handleConfigChange('min_probability', parseInt(e.target.value))}
+              />
+            </div>
+
+            <div className="param-item">
+              <div className="param-label-row">
+                <label>Max Spread</label>
+                <span className="param-value">{strategyConfig.max_spread}¢</span>
+              </div>
+              <input
+                type="number"
+                min="1"
+                max="10"
+                value={strategyConfig.max_spread}
+                onChange={(e) => handleConfigChange('max_spread', parseInt(e.target.value))}
+              />
+            </div>
+
+            <div className="param-item">
+              <div className="param-label-row">
+                <label>Min Volume</label>
+                <span className="param-value">{strategyConfig.min_volume.toLocaleString()}</span>
+              </div>
+              <input
+                type="number"
+                min="0"
+                max="100000"
+                step="1000"
+                value={strategyConfig.min_volume}
+                onChange={(e) => handleConfigChange('min_volume', parseInt(e.target.value))}
+              />
+            </div>
+
+            <div className="param-item">
+              <div className="param-label-row">
+                <label>Max Time to Expiry</label>
+                <span className="param-value">
+                  {strategyConfig.max_time_to_expiry >= 1 
+                    ? `${strategyConfig.max_time_to_expiry}h`
+                    : `${strategyConfig.max_time_to_expiry * 60}m`
+                  }
+                </span>
+              </div>
+              <input
+                type="number"
+                min="0.1"
+                max="168"
+                step="0.5"
+                value={strategyConfig.max_time_to_expiry}
+                onChange={(e) => handleConfigChange('max_time_to_expiry', parseFloat(e.target.value))}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Scan Frequency as Button Group */}
+        <div className="scan-frequency-section">
+          <label>Scan Every:</label>
+          <div className="button-group">
+            {[1, 5, 10, 15, 30, 60].map(min => (
+              <button
+                key={min}
+                className={`freq-btn ${strategyConfig.scan_frequency === min ? 'active' : ''}`}
+                onClick={() => handleConfigChange('scan_frequency', min)}
+              >
+                {min}min
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Advanced Settings - Collapsible */}
+        <div className="advanced-section">
+          <button 
+            className="advanced-toggle"
+            onClick={() => setShowAdvanced(!showAdvanced)}
+          >
+            {showAdvanced ? '▼' : '▶'} Advanced Settings
+          </button>
+
+          {showAdvanced && (
+            <div className="advanced-content">
+              <div className="advanced-grid">
+                <div className="param-item-compact">
+                  <label>Stop Loss:</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="99"
+                    value={strategyConfig.stop_loss}
+                    onChange={(e) => handleConfigChange('stop_loss', parseInt(e.target.value))}
+                  />
+                  <span>¢</span>
+                </div>
+
+                <div className="param-item-compact">
+                  <label>Order Max Age:</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="30"
+                    value={strategyConfig.max_pending_age_minutes}
+                    onChange={(e) => handleConfigChange('max_pending_age_minutes', parseInt(e.target.value))}
+                  />
+                  <span>min</span>
+                </div>
+
+                <div className="param-item-compact">
+                  <label>Order Delay:</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="5"
+                    step="0.1"
+                    value={strategyConfig.order_delay_seconds}
+                    onChange={(e) => handleConfigChange('order_delay_seconds', parseFloat(e.target.value))}
+                  />
+                  <span>sec</span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </section>
 
@@ -311,7 +385,7 @@ function App() {
             </FilterBtn>
           </div>
         </div>
-        <div className="table-container">
+        <div className="table-container-scrollable">
           <table>
             <thead>
               <tr>

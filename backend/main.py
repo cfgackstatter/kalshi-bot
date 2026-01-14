@@ -11,6 +11,36 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"])
 
 trader = KalshiTrader()
 
+def _safe_parse_datetime(dt_string):
+    """Parse datetime string handling variable microsecond precision."""
+    if not isinstance(dt_string, str):
+        return dt_string
+
+    dt_string = dt_string.replace("Z", "+00:00")
+
+    # Handle microseconds - Python expects 0, 3, or 6 digits
+    if '.' in dt_string and ('+' in dt_string or dt_string.count('-') > 2):
+        parts = dt_string.split('.')
+        if len(parts) == 2:
+            date_part = parts[0]
+            micro_and_tz = parts[1]
+
+            if '+' in micro_and_tz:
+                micro, tz = micro_and_tz.split('+')
+                micro = micro.ljust(6, '0')[:6]
+                dt_string = f"{date_part}.{micro}+{tz}"
+            elif '-' in micro_and_tz and micro_and_tz.index('-') > 2:
+                # Last '-' is timezone separator
+                idx = micro_and_tz.rindex('-')
+                micro = micro_and_tz[:idx]
+                tz = micro_and_tz[idx+1:]
+                micro = micro.ljust(6, '0')[:6]
+                dt_string = f"{date_part}.{micro}-{tz}"
+
+    dt = datetime.fromisoformat(dt_string)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
 
 class TradeRequest(BaseModel):
     ticker: str
@@ -38,10 +68,7 @@ def get_markets():
     markets = []
     for market in all_markets:
         close_time = market.close_time
-        if isinstance(close_time, str):
-            close_time = datetime.fromisoformat(close_time.replace("Z", "+00:00"))
-        if close_time.tzinfo is None:
-            close_time = close_time.replace(tzinfo=timezone.utc)
+        close_time = _safe_parse_datetime(close_time)
         
         time_left = close_time - now
         days = time_left.days
@@ -114,16 +141,13 @@ def get_positions():
     now = datetime.now(timezone.utc)
     
     for market in markets_list:
-        close_time = market.close_time
-        if isinstance(close_time, str):
-            close_time = datetime.fromisoformat(close_time.replace("Z", "+00:00"))
-        if close_time.tzinfo is None:
-            close_time = close_time.replace(tzinfo=timezone.utc)
+        close_time = _safe_parse_datetime(market.close_time)
         
         time_left = close_time - now
         days = time_left.days
         hours = time_left.seconds // 3600
         minutes = (time_left.seconds % 3600) // 60
+        total_seconds = time_left.total_seconds()
         
         markets_data[market.ticker] = {
             "last_price": getattr(market, "last_price", getattr(market, "yes_ask", 50)),
@@ -134,6 +158,7 @@ def get_positions():
             "days_left": days,
             "hours_left": hours,
             "minutes_left": minutes,
+            "total_seconds_left": total_seconds,
         }
     
     positions = []
@@ -147,6 +172,7 @@ def get_positions():
             "days_left": 0,
             "hours_left": 0,
             "minutes_left": 0,
+            "total_seconds_left": 0,
         })
         
         contracts = pos.position
@@ -179,12 +205,14 @@ def get_positions():
             "days_left": market_info["days_left"],
             "hours_left": market_info["hours_left"],
             "minutes_left": market_info["minutes_left"],
+            "total_seconds_left": market_info["total_seconds_left"],
             "yes_bid": market_info["yes_bid"],
             "yes_ask": market_info["yes_ask"],
             "no_bid": market_info["no_bid"],
             "no_ask": market_info["no_ask"],
         })
     
+    positions.sort(key=lambda p: p["total_seconds_left"])
     return {"positions": positions, "count": len(positions)}
 
 
@@ -249,10 +277,11 @@ strategy_config = {
     "min_probability": 98,
     "scan_frequency": 15,
     "stop_loss": 50,
-    "max_time_to_expiry": 72,
+    "max_time_to_expiry": 1,
     "max_pending_age_minutes": 5,
-    "order_delay_seconds": 2,
-    "max_positions": 20,
+    "order_delay_seconds": 0.5,
+    "max_spread": 2,
+    "min_volume": 1,
     "enabled": False
 }
 strategy = HighProbStrategy(trader, strategy_config)
@@ -291,6 +320,11 @@ def start_strategy():
         minutes=5,
         id="strategy_exits"
     )
+    
+    try:
+        strategy.scan_and_execute()
+    except Exception as e:
+        print(f"Initial scan failed: {e}")
     
     return {"success": True, "status": "started"}
 
