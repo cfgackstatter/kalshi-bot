@@ -65,9 +65,13 @@ class KalshiTrader:
         return response.json()
     
     def get_balance(self) -> dict:
-        """Get account balance."""
+        """Get account balance and portfolio value."""
         data = self._request("GET", "/portfolio/balance")
-        return {"balance": data["balance"] / 100}
+        return {
+            "balance": data["balance"] / 100,
+            "portfolio_value": data.get("portfolio_value", data["balance"]) / 100,
+            "updated_ts": data.get("updated_ts", 0)
+        }
     
     def get_markets(self, tickers: Optional[list] = None, status: str = "open", 
                     max_close_ts: Optional[int] = None) -> list:

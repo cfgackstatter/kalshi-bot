@@ -315,7 +315,7 @@ def start_strategy():
     
     # Schedule exit monitoring (every 5 min)
     scheduler.add_job(
-        strategy.check_exits,
+        strategy.check_stop_losses,
         "interval",
         minutes=5,
         id="strategy_exits"

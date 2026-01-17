@@ -16,29 +16,39 @@ class HighProbStrategy:
         # Clean up stale pending orders first
         self._cleanup_pending_orders()
 
-        # Fetch state ONCE at start
-        balance = self.trader.get_balance()["balance"]
+        # Get balance and portfolio_value
+        balance_data = self.trader.get_balance()
+        balance = balance_data["balance"]  # Cash
+        positions_value_from_api = balance_data["portfolio_value"]  # Positions value
+        total_portfolio = balance + positions_value_from_api
+
+        # Fetch positions and pending orders
         positions_response = self.trader.get_positions()
         pending_orders = self.trader.get_orders(status='resting')
         market_positions = getattr(positions_response, "market_positions", [])
 
-        # Calculate total portfolio value (cash + positions)
+        # Check stop-losses using already-fetched positions
+        self._check_stop_losses_with_positions(market_positions)
+        
+        # Calculate used capital
         positions_value = sum(
             abs(float(pos.market_exposure_dollars)) + abs(float(pos.fees_paid_dollars))
             for pos in market_positions
         )
+        
         pending_value = sum(
             (order.remaining_count * getattr(order, f"{order.side}_price", 0) / 100)
             for order in pending_orders
         )
 
-        total_portfolio = balance + positions_value + pending_value
-        allocated_capital = total_portfolio * (self.config["capital_allocation"] / 100)
         used_capital = positions_value + pending_value
+        allocated_capital = total_portfolio * (self.config["capital_allocation"] / 100)
+
+        # Build set of held tickers
         held_tickers = {pos.ticker for pos in market_positions}
         held_tickers.update({order.ticker for order in pending_orders})
 
-        print(f"Portfolio: cash=${balance:.2f} + positions=${positions_value:.2f} = ${total_portfolio:.2f}")
+        print(f"Portfolio: cash=${balance:.2f}, positions=${positions_value_from_api:.2f}, total=${total_portfolio:.2f}")
         print(f"Allocated: ${allocated_capital:.2f} ({self.config['capital_allocation']}%)")
         print(f"Used: ${used_capital:.2f}, Available: ${allocated_capital - used_capital:.2f}")
 
@@ -56,7 +66,6 @@ class HighProbStrategy:
 
         # Iteratively place orders for best opportunities
         orders_placed = 0
-
         for opportunity in all_opportunities:
             # Check if already held
             if opportunity["ticker"] in held_tickers:
@@ -70,54 +79,14 @@ class HighProbStrategy:
             # Place order
             if self._place_order(opportunity):
                 orders_placed += 1
-                # Update state locally
                 used_capital += opportunity["cost"]
                 held_tickers.add(opportunity["ticker"])
-
                 print(f"[{orders_placed}] Ordered {opportunity['contracts']} {opportunity['side']} "
                       f"@ {opportunity['price']}¢ on {opportunity['ticker']} "
                       f"(yield: {opportunity['yield']:.1f}%)")
-
-                # Brief pause
                 sleep(self.config.get("order_delay_seconds", 0.5))
 
         print(f"=== Scan complete: {orders_placed} orders placed ===")
-
-    def check_exits(self):
-        """Monitor positions for stop-loss exits."""
-        positions_response = self.trader.get_positions()
-        market_positions = getattr(positions_response, "market_positions", [])
-
-        if not market_positions:
-            return
-
-        tickers = [pos.ticker for pos in market_positions]
-        markets = self.trader.get_markets(tickers=tickers)
-        markets_dict = {m.ticker: m for m in markets}
-
-        for pos in market_positions:
-            market = markets_dict.get(pos.ticker)
-            if not market:
-                continue
-
-            contracts = pos.position
-            side = "yes" if contracts > 0 else "no"
-            contracts = abs(contracts)
-
-            current_bid = market.yes_bid if side == "yes" else market.no_bid
-
-            # Fixed stop-loss at 50 cents (good for ~99 cent entries)
-            if current_bid <= self.config["stop_loss"]:
-                try:
-                    self.trader.close_position(
-                        ticker=pos.ticker,
-                        side=side,
-                        quantity=contracts,
-                        price=current_bid
-                    )
-                    print(f"Stop-loss: closed {contracts} {side} @ {current_bid}¢ on {pos.ticker}")
-                except Exception as e:
-                    print(f"Exit failed for {pos.ticker}: {e}")
 
     def _cleanup_pending_orders(self):
         """Cancel orders older than max_age_minutes."""
@@ -137,6 +106,42 @@ class HighProbStrategy:
                     print(f"Cancelled stale order: {order.ticker} (age: {age_minutes:.1f}min)")
         except Exception as e:
             print(f"Cleanup failed: {e}")
+
+    def check_stop_losses(self):
+        """Check stop-losses on all positions (called by scheduler)."""
+        positions_response = self.trader.get_positions()
+        market_positions = getattr(positions_response, "market_positions", [])
+        self._check_stop_losses_with_positions(market_positions)
+
+    def _check_stop_losses_with_positions(self, market_positions):
+        """Internal: Check stop-losses given position list."""
+        if not market_positions:
+            return
+
+        tickers = [pos.ticker for pos in market_positions]
+        markets = self.trader.get_markets(tickers=tickers)
+        markets_dict = {m.ticker: m for m in markets}
+
+        for pos in market_positions:
+            market = markets_dict.get(pos.ticker)
+            if not market:
+                continue
+
+            side = "yes" if pos.position > 0 else "no"
+            contracts = abs(pos.position)
+            current_bid = market.yes_bid if side == "yes" else market.no_bid
+
+            if current_bid <= self.config["stop_loss"]:
+                try:
+                    self.trader.close_position(
+                        ticker=pos.ticker,
+                        side=side,
+                        quantity=contracts,
+                        price=current_bid
+                    )
+                    print(f"STOP-LOSS: Sold {contracts} {side} @ {current_bid}¢ on {pos.ticker}")
+                except Exception as e:
+                    print(f"Stop-loss exit failed for {pos.ticker}: {e}")
 
     def _fetch_markets(self):
         """Fetch all eligible markets."""

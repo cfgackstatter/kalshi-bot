@@ -19,6 +19,7 @@ const Modal = ({ title, onClose, children }) => (
 
 function App() {
   const [balance, setBalance] = useState(0)
+  const [portfolioValue, setPortfolioValue] = useState(0)
   const [markets, setMarkets] = useState([])
   const [orders, setOrders] = useState([])
   const [positions, setPositions] = useState([])
@@ -56,7 +57,14 @@ function App() {
         axios.get(`${API}/orders`),
         axios.get(`${API}/positions`)
       ])
-      setBalance(balRes.data.balance)
+
+      const balData = balRes.data
+      const cash = balData.balance                    // Cash
+      const positionsVal = balData.portfolio_value    // Positions value
+      const totalPortfolio = cash + positionsVal      // TOTAL
+
+      setBalance(cash)
+      setPortfolioValue(totalPortfolio)  // Store TOTAL
       setMarkets(marketsRes.data.markets)
       setOrders(ordersRes.data.orders)
       setPositions(posRes.data.positions)
@@ -157,8 +165,8 @@ function App() {
     }
   }
 
-  const posVal = positions.reduce((sum, p) => sum + p.market_value, 0)
-  const portVal = balance + posVal
+  const posVal = portfolioValue - balance
+  const portVal = portfolioValue
 
   return (
     <div className="container">
