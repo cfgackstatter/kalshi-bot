@@ -129,7 +129,8 @@ class HighProbStrategy:
 
             side = "yes" if pos.position > 0 else "no"
             contracts = abs(pos.position)
-            current_bid = market.yes_bid if side == "yes" else market.no_bid
+            bid_dollars = market.yes_bid_dollars if side == "yes" else market.no_bid_dollars
+            current_bid = int(float(bid_dollars) * 100)
 
             if current_bid <= self.config["stop_loss"]:
                 try:
@@ -161,8 +162,8 @@ class HighProbStrategy:
 
     def _evaluate_side(self, market, side: str, balance: float):
         """Evaluate one side of market."""
-        bid = getattr(market, f"{side}_bid", 0)
-        ask = getattr(market, f"{side}_ask", 0)
+        bid = int(float(getattr(market, f"{side}_bid_dollars", "0")) * 100)
+        ask = int(float(getattr(market, f"{side}_ask_dollars", "0")) * 100)
 
         # Check minimum probability
         if bid < self.config["min_probability"]:
@@ -183,7 +184,7 @@ class HighProbStrategy:
             return None
 
         # Use ask + 1 to avoid taker fees (as per user preference)
-        order_price = min(ask + 1, 99)
+        order_price = min(ask, 99)
 
         # Calculate contracts based on position size
         position_capital = balance * (self.config["position_size"] / 100)
@@ -193,7 +194,7 @@ class HighProbStrategy:
         if contracts < 2:
             return None
 
-        # Calculate yield with correct fee formula: ceil(0.07 * C * P * (1-P))
+        # Calculate yield with fee formula: ceil(0.07 * C * P * (1-P))
         total_cost = contracts * entry_price
         total_fees = math.ceil(0.07 * contracts * entry_price * (1 - entry_price) * 100) / 100
         payout = contracts * 1.0
@@ -204,15 +205,17 @@ class HighProbStrategy:
 
         # Calculate annualized yield
         close_time = self._parse_datetime(market.close_time)
-        hours = (close_time - datetime.now(timezone.utc)).total_seconds() / 3600
+        hours_to_close = (close_time - datetime.now(timezone.utc)).total_seconds() / 3600
 
-        if hours <= 0:
+        # Filter by risk time (close time)
+        if hours_to_close <= 0 or hours_to_close > self.config["max_time_to_expiry"]:
             return None
 
-        if hours > self.config["max_time_to_expiry"]:
-            return None
+        # Calculate yield using capital lock time (close + settlement)
+        settlement_seconds = getattr(market, "settlement_timer_seconds", 0)
+        hours_to_settlement = hours_to_close + (settlement_seconds / 3600)
 
-        annualized_yield = (net_profit / total_cost) * (8760 / hours) * 100
+        annualized_yield = (net_profit / total_cost) * (8760 / hours_to_settlement) * 100
 
         return {
             "ticker": market.ticker,

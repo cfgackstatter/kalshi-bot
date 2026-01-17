@@ -76,10 +76,12 @@ def get_markets():
         minutes = (time_left.seconds % 3600) // 60
         total_seconds = time_left.total_seconds()
         
-        yes_bid = getattr(market, "yes_bid", 0) or 0
-        yes_ask = getattr(market, "yes_ask", 0) or 0
-        no_bid = getattr(market, "no_bid", 0) or 0
-        no_ask = getattr(market, "no_ask", 0) or 0
+        yes_bid = int(float(getattr(market, "yes_bid_dollars", "0")) * 100)
+        yes_ask = int(float(getattr(market, "yes_ask_dollars", "0")) * 100)
+        no_bid = int(float(getattr(market, "no_bid_dollars", "0")) * 100)
+        no_ask = int(float(getattr(market, "no_ask_dollars", "0")) * 100)
+
+        settlement_seconds = getattr(market, "settlement_timer_seconds", 0)
         
         if yes_ask >= 100 or yes_ask <= 0 or yes_bid >= 100 or yes_bid <= 0:
             continue
@@ -101,6 +103,7 @@ def get_markets():
             "hours_left": hours,
             "minutes_left": minutes,
             "total_seconds_left": total_seconds,
+            "settlement_seconds": settlement_seconds,
         })
     
     markets.sort(key=lambda m: m["total_seconds_left"])
@@ -148,17 +151,25 @@ def get_positions():
         hours = time_left.seconds // 3600
         minutes = (time_left.seconds % 3600) // 60
         total_seconds = time_left.total_seconds()
+
+        yes_bid = int(float(getattr(market, "yes_bid_dollars", "0")) * 100)
+        yes_ask = int(float(getattr(market, "yes_ask_dollars", "0")) * 100)
+        no_bid = int(float(getattr(market, "no_bid_dollars", "0")) * 100)
+        no_ask = int(float(getattr(market, "no_ask_dollars", "0")) * 100)
+
+        settlement_seconds = getattr(market, "settlement_timer_seconds", 0)
         
         markets_data[market.ticker] = {
-            "last_price": getattr(market, "last_price", getattr(market, "yes_ask", 50)),
-            "yes_bid": getattr(market, "yes_bid", 0),
-            "yes_ask": getattr(market, "yes_ask", 0),
-            "no_bid": getattr(market, "no_bid", 0),
-            "no_ask": getattr(market, "no_ask", 0),
+            "last_price": getattr(market, "last_price", yes_ask),
+            "yes_bid": yes_bid,
+            "yes_ask": yes_ask,
+            "no_bid": no_bid,
+            "no_ask": no_ask,
             "days_left": days,
             "hours_left": hours,
             "minutes_left": minutes,
             "total_seconds_left": total_seconds,
+            "settlement_seconds": settlement_seconds,
         }
     
     positions = []
