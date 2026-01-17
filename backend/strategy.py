@@ -165,12 +165,13 @@ class HighProbStrategy:
         bid = int(float(getattr(market, f"{side}_bid_dollars", "0")) * 100)
         ask = int(float(getattr(market, f"{side}_ask_dollars", "0")) * 100)
 
-        # Check minimum probability
-        if bid < self.config["min_probability"]:
-            return None
-
         # Check valid ask
         if ask >= 100 or ask <= 0:
+            return None
+        
+        # Check minimum probability using mid price
+        mid = (bid + ask) / 2
+        if mid < self.config["min_probability"]:
             return None
         
         # Check spread constraint
@@ -190,9 +191,6 @@ class HighProbStrategy:
         position_capital = balance * (self.config["position_size"] / 100)
         entry_price = order_price / 100
         contracts = int(position_capital / entry_price)
-
-        if contracts < 2:
-            return None
 
         # Calculate yield with fee formula: ceil(0.07 * C * P * (1-P))
         total_cost = contracts * entry_price
