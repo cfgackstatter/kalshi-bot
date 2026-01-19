@@ -129,18 +129,22 @@ class HighProbStrategy:
 
             side = "yes" if pos.position > 0 else "no"
             contracts = abs(pos.position)
-            bid_dollars = market.yes_bid_dollars if side == "yes" else market.no_bid_dollars
-            current_bid = int(float(bid_dollars) * 100)
 
-            if current_bid <= self.config["stop_loss"]:
+            bid_dollars = market.yes_bid_dollars if side == "yes" else market.no_bid_dollars
+            ask_dollars = market.yes_ask_dollars if side == "yes" else market.no_ask_dollars
+            bid = int(float(bid_dollars) * 100)
+            ask = int(float(ask_dollars) * 100)
+            mid = (bid + ask) / 2
+
+            if mid <= self.config["stop_loss"]:
                 try:
                     self.trader.close_position(
                         ticker=pos.ticker,
                         side=side,
                         quantity=contracts,
-                        price=current_bid
+                        price=bid
                     )
-                    print(f"STOP-LOSS: Sold {contracts} {side} @ {current_bid}¢ on {pos.ticker}")
+                    print(f"STOP-LOSS: Sold {contracts} {side} @ {bid}¢ on {pos.ticker}")
                 except Exception as e:
                     print(f"Stop-loss exit failed for {pos.ticker}: {e}")
 
@@ -183,8 +187,18 @@ class HighProbStrategy:
         volume = getattr(market, "volume", 0) or 0
         if volume < self.config.get("min_volume", 0):
             return None
+        
+        # Check ticker exclusion filter
+        exclude_substrings = self.config.get("ticker_exclude_substrings", "")
+        if exclude_substrings:
+            # Split by comma, strip whitespace, convert to lowercase
+            exclusions = [s.strip().lower() for s in exclude_substrings.split(",") if s.strip()]
+            ticker_lower = market.ticker.lower()
+            for exclusion in exclusions:
+                if exclusion in ticker_lower:
+                    return None
 
-        # Use ask + 1 to avoid taker fees (as per user preference)
+        # Use ask for order
         order_price = min(ask, 99)
 
         # Calculate contracts based on position size

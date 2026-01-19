@@ -31,16 +31,17 @@ function App() {
   const [strategyEnabled, setStrategyEnabled] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [strategyConfig, setStrategyConfig] = useState({
-    capital_allocation: 50,
-    position_size: 5,
+    capital_allocation: 100,
+    position_size: 10,
     min_probability: 98,
-    scan_frequency: 15,
+    scan_frequency: 1,
     stop_loss: 50,
-    max_time_to_expiry: 1,
-    max_pending_age_minutes: 5,
+    max_time_to_expiry: 0.5,
+    max_pending_age_minutes: 1,
     order_delay_seconds: 0.5,
-    max_spread: 2,
-    min_volume: 1
+    max_spread: 1,
+    min_volume: 1,
+    ticker_exclude_substrings: 'MENTION-,SAY-'
   })
 
   useEffect(() => {
@@ -113,9 +114,11 @@ function App() {
   }
 
   const filteredMarkets = markets.filter(m => {
+    const yes_mid = (m.yes_bid + m.yes_ask) / 2
+    const no_mid = (m.no_bid + m.no_ask) / 2
     const spread = m.yes_ask - m.yes_bid
     return (
-      (!filters.highProb || (m.yes_bid >= 98 || m.no_bid >= 98)) &&
+      (!filters.highProb || (yes_mid >= 98 || no_mid >= 98)) &&
       (!filters.tightSpread || spread <= 2) &&
       (!filters.highVolume || m.volume >= 10000)
     )
@@ -202,7 +205,7 @@ function App() {
         </div>
 
         <div className="strategy-config-grid">
-          {/* LEFT COLUMN: Capital Settings */}
+          {/* FIRST COLUMN: Capital Settings */}
           <div className="config-card">
             <h3 className="card-title">Capital Settings</h3>
 
@@ -239,7 +242,7 @@ function App() {
             </div>
           </div>
 
-          {/* RIGHT COLUMN: Entry Filters */}
+          {/* SECOND COLUMN: Entry Filters */}
           <div className="config-card">
             <h3 className="card-title">Entry Filters</h3>
 
@@ -306,21 +309,25 @@ function App() {
               />
             </div>
           </div>
-        </div>
 
-        {/* Scan Frequency as Button Group */}
-        <div className="scan-frequency-section">
-          <label>Scan Every:</label>
-          <div className="button-group">
-            {[1, 5, 10, 15, 30, 60].map(min => (
-              <button
-                key={min}
-                className={`freq-btn ${strategyConfig.scan_frequency === min ? 'active' : ''}`}
-                onClick={() => handleConfigChange('scan_frequency', min)}
-              >
-                {min}min
-              </button>
-            ))}
+          {/* THIRD COLUMN: Frequency */}
+          <div className="config-card">
+            <h3 className="card-title">Frequency</h3>
+
+            <div className="param-item">
+              <label>Scan Every:</label>
+              <div className="button-group">
+                {[1, 5, 10, 15, 30, 45, 60].map(min => (
+                  <button
+                    key={min}
+                    className={`freq-btn ${strategyConfig.scan_frequency === min ? 'active' : ''}`}
+                    onClick={() => handleConfigChange('scan_frequency', min)}
+                  >
+                    {min}min
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -337,7 +344,7 @@ function App() {
             <div className="advanced-content">
               <div className="advanced-grid">
                 <div className="param-item-compact">
-                  <label>Stop Loss:</label>
+                  <label>Stop Loss (¢):</label>
                   <input
                     type="number"
                     min="1"
@@ -345,11 +352,10 @@ function App() {
                     value={strategyConfig.stop_loss}
                     onChange={(e) => handleConfigChange('stop_loss', parseInt(e.target.value))}
                   />
-                  <span>¢</span>
                 </div>
 
                 <div className="param-item-compact">
-                  <label>Order Max Age:</label>
+                  <label>Order Max Age (min):</label>
                   <input
                     type="number"
                     min="1"
@@ -357,11 +363,10 @@ function App() {
                     value={strategyConfig.max_pending_age_minutes}
                     onChange={(e) => handleConfigChange('max_pending_age_minutes', parseInt(e.target.value))}
                   />
-                  <span>min</span>
                 </div>
 
                 <div className="param-item-compact">
-                  <label>Order Delay:</label>
+                  <label>Order Delay (sec):</label>
                   <input
                     type="number"
                     min="0"
@@ -370,7 +375,17 @@ function App() {
                     value={strategyConfig.order_delay_seconds}
                     onChange={(e) => handleConfigChange('order_delay_seconds', parseFloat(e.target.value))}
                   />
-                  <span>sec</span>
+                </div>
+
+                <div className="param-item-compact">
+                  <label>Exclude Tickers:</label>
+                  <input
+                    type="text"
+                    placeholder="e.g., MENTION-,SAY-"
+                    value={strategyConfig.ticker_exclude_substrings}
+                    onChange={(e) => handleConfigChange('ticker_exclude_substrings', e.target.value)}
+                    style={{minWidth: '150px'}}
+                  />
                 </div>
               </div>
             </div>
@@ -380,7 +395,7 @@ function App() {
 
       <section>
         <div className="section-header">
-          <h2>Markets ({filteredMarkets.length} expiring in 72h)</h2>
+          <h2>Markets expiring within 72h ({filteredMarkets.length})</h2>
           <div className="filters">
             <FilterBtn active={filters.highProb} onClick={() => setFilters({...filters, highProb: !filters.highProb})}>
               High Prob ≥98¢
