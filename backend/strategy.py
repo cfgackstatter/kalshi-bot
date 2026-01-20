@@ -71,10 +71,17 @@ class HighProbStrategy:
             if opportunity["ticker"] in held_tickers:
                 continue
 
-            # Check capital constraint
-            if used_capital + opportunity["cost"] > allocated_capital:
+            # Adjust to available capital
+            available = allocated_capital - used_capital
+            entry_price = opportunity["price"] / 100
+            max_contracts = int(available / entry_price)
+
+            if max_contracts < 1:
                 print(f"Exit: Capital exhausted ({used_capital:.2f}/{allocated_capital:.2f})")
                 break
+
+            opportunity["contracts"] = min(opportunity["contracts"], max_contracts)
+            opportunity["cost"] = opportunity["contracts"] * entry_price
 
             # Place order
             if self._place_order(opportunity):
