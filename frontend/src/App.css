@@ -113,7 +113,7 @@ section {
   50% { opacity: 0.5; }
 }
 
-/* Two-column grid for config cards */
+/* Three-column grid for config cards */
 .strategy-config-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

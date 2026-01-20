@@ -381,7 +381,7 @@ function App() {
                   <label>Exclude Tickers:</label>
                   <input
                     type="text"
-                    placeholder="e.g., MENTION-,SAY-"
+                    placeholder="e.g., MENTION-,SAY-,NETFLIX"
                     value={strategyConfig.ticker_exclude_substrings}
                     onChange={(e) => handleConfigChange('ticker_exclude_substrings', e.target.value)}
                     style={{minWidth: '150px'}}
