@@ -149,9 +149,9 @@ class HighProbStrategy:
                         ticker=pos.ticker,
                         side=side,
                         quantity=contracts,
-                        price=bid
+                        order_type="market"
                     )
-                    print(f"STOP-LOSS: Sold {contracts} {side} @ {bid}¢ on {pos.ticker}")
+                    print(f"STOP-LOSS: Market sold {contracts} {side} on {pos.ticker} (triggered at mid={mid:.1f}¢)")
                 except Exception as e:
                     print(f"Stop-loss exit failed for {pos.ticker}: {e}")
 

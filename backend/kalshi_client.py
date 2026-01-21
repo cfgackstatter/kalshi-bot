@@ -119,16 +119,18 @@ class KalshiTrader:
         }
         return self._request("POST", "/portfolio/orders", json=payload)
     
-    def close_position(self, ticker: str, side: str, quantity: int, price: int):
+    def close_position(self, ticker: str, side: str, quantity: int, price: Optional[int] = None, order_type: str = "limit"):
         """Close an existing position."""
         payload = {
             "ticker": ticker,
             "action": "sell",
             "side": side,
             "count": quantity,
-            "type": "limit",
-            f"{side}_price": price
+            "type": order_type,
         }
+        if order_type == "limit" and price is not None:
+            payload[f"{side}_price"] = price
+
         return self._request("POST", "/portfolio/orders", json=payload)
 
     def get_orders(self, status: str = "resting") -> list:
