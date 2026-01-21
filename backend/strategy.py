@@ -206,7 +206,7 @@ class HighProbStrategy:
                     return None
 
         # Use ask for order
-        order_price = min(ask, 99)
+        order_price = min(bid + 1, 99)
 
         # Calculate contracts based on position size
         position_capital = balance * (self.config["position_size"] / 100)
