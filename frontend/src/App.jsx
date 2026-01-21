@@ -41,7 +41,7 @@ function App() {
     order_delay_seconds: 0.5,
     max_spread: 1,
     min_volume: 1,
-    ticker_exclude_substrings: 'MENTION-,SAY-'
+    ticker_exclude_substrings: 'MENTION-,SAY-,NETFLIX'
   })
 
   useEffect(() => {
