@@ -30,19 +30,7 @@ function App() {
   const [tradeSide, setTradeSide] = useState('yes')
   const [strategyEnabled, setStrategyEnabled] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [strategyConfig, setStrategyConfig] = useState({
-    capital_allocation: 100,
-    position_size: 10,
-    min_probability: 98,
-    scan_frequency: 1,
-    stop_loss: 50,
-    max_time_to_expiry: 0.5,
-    max_pending_age_minutes: 1,
-    order_delay_seconds: 0.5,
-    max_spread: 1,
-    min_volume: 1,
-    ticker_exclude_substrings: 'MENTION-,SAY-,NETFLIX'
-  })
+  const [strategyConfig, setStrategyConfig] = useState(null)
 
   useEffect(() => {
     fetchData()
@@ -78,11 +66,12 @@ function App() {
 
   const fetchStrategyConfig = async () => {
     try {
-      const res = await axios.get(`${API}/strategy`)
+      const res = await axios.get(`${API}/strategy/config`)
       setStrategyConfig(res.data)
-      setStrategyEnabled(res.data.enabled)
+      setStrategyEnabled(res.data.enabled || false)
     } catch (err) {
-      console.error('Failed to load strategy config')
+      console.error('Failed to load strategy config:', err)
+      alert('Failed to load strategy configuration')
     }
   }
 
@@ -95,6 +84,7 @@ function App() {
   }
 
   const handleConfigChange = async (key, value) => {
+    if (!strategyConfig) return
     const newConfig = { ...strategyConfig, [key]: value }
     setStrategyConfig(newConfig)
     await updateStrategyConfig(newConfig)
@@ -204,132 +194,136 @@ function App() {
           </button>
         </div>
 
-        <div className="strategy-config-grid">
-          {/* FIRST COLUMN: Capital Settings */}
-          <div className="config-card">
-            <h3 className="card-title">Capital Settings</h3>
+        {!strategyConfig ? (
+          <div>Loading configuration...</div>
+        ) : (
+          <div className="strategy-config-grid">
+            {/* FIRST COLUMN: Capital Settings */}
+            <div className="config-card">
+              <h3 className="card-title">Capital Settings</h3>
 
-            <div className="param-item">
-              <div className="param-label-row">
-                <label>Capital Allocation</label>
-                <span className="param-value">{strategyConfig.capital_allocation}%</span>
+              <div className="param-item">
+                <div className="param-label-row">
+                  <label>Capital Allocation</label>
+                  <span className="param-value">{strategyConfig.capital_allocation}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="10"
+                  max="100"
+                  step="5"
+                  value={strategyConfig.capital_allocation}
+                  onChange={(e) => handleConfigChange('capital_allocation', parseInt(e.target.value))}
+                />
+                <div className="param-hint">Will use ${(portVal * strategyConfig.capital_allocation / 100).toFixed(2)} of ${portVal.toFixed(2)}</div>
               </div>
-              <input
-                type="range"
-                min="10"
-                max="100"
-                step="5"
-                value={strategyConfig.capital_allocation}
-                onChange={(e) => handleConfigChange('capital_allocation', parseInt(e.target.value))}
-              />
-              <div className="param-hint">Will use ${(portVal * strategyConfig.capital_allocation / 100).toFixed(2)} of ${portVal.toFixed(2)}</div>
+
+              <div className="param-item">
+                <div className="param-label-row">
+                  <label>Position Size</label>
+                  <span className="param-value">{strategyConfig.position_size}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="1"
+                  max="20"
+                  step="1"
+                  value={strategyConfig.position_size}
+                  onChange={(e) => handleConfigChange('position_size', parseInt(e.target.value))}
+                />
+                <div className="param-hint">~${(portVal * strategyConfig.position_size / 100).toFixed(2)} per position</div>
+              </div>
             </div>
 
-            <div className="param-item">
-              <div className="param-label-row">
-                <label>Position Size</label>
-                <span className="param-value">{strategyConfig.position_size}%</span>
+            {/* SECOND COLUMN: Entry Filters */}
+            <div className="config-card">
+              <h3 className="card-title">Entry Filters</h3>
+
+              <div className="param-item">
+                <div className="param-label-row">
+                  <label>Min Probability</label>
+                  <span className="param-value">{strategyConfig.min_probability}¢</span>
+                </div>
+                <input
+                  type="number"
+                  min="95"
+                  max="99"
+                  value={strategyConfig.min_probability}
+                  onChange={(e) => handleConfigChange('min_probability', parseInt(e.target.value))}
+                />
               </div>
-              <input
-                type="range"
-                min="1"
-                max="20"
-                step="1"
-                value={strategyConfig.position_size}
-                onChange={(e) => handleConfigChange('position_size', parseInt(e.target.value))}
-              />
-              <div className="param-hint">~${(portVal * strategyConfig.position_size / 100).toFixed(2)} per position</div>
+
+              <div className="param-item">
+                <div className="param-label-row">
+                  <label>Max Spread</label>
+                  <span className="param-value">{strategyConfig.max_spread}¢</span>
+                </div>
+                <input
+                  type="number"
+                  min="1"
+                  max="10"
+                  value={strategyConfig.max_spread}
+                  onChange={(e) => handleConfigChange('max_spread', parseInt(e.target.value))}
+                />
+              </div>
+
+              <div className="param-item">
+                <div className="param-label-row">
+                  <label>Min Volume</label>
+                  <span className="param-value">{strategyConfig.min_volume.toLocaleString()}</span>
+                </div>
+                <input
+                  type="number"
+                  min="0"
+                  max="100000"
+                  step="1000"
+                  value={strategyConfig.min_volume}
+                  onChange={(e) => handleConfigChange('min_volume', parseInt(e.target.value))}
+                />
+              </div>
+
+              <div className="param-item">
+                <div className="param-label-row">
+                  <label>Max Time to Expiry</label>
+                  <span className="param-value">
+                    {strategyConfig.max_time_to_expiry >= 1 
+                      ? `${strategyConfig.max_time_to_expiry}h`
+                      : `${strategyConfig.max_time_to_expiry * 60}m`
+                    }
+                  </span>
+                </div>
+                <input
+                  type="number"
+                  min="0.1"
+                  max="168"
+                  step="0.5"
+                  value={strategyConfig.max_time_to_expiry}
+                  onChange={(e) => handleConfigChange('max_time_to_expiry', parseFloat(e.target.value))}
+                />
+              </div>
+            </div>
+
+            {/* THIRD COLUMN: Frequency */}
+            <div className="config-card">
+              <h3 className="card-title">Frequency</h3>
+
+              <div className="param-item">
+                <label>Scan Every:</label>
+                <div className="button-group">
+                  {[1, 5, 10, 15, 30, 45, 60].map(min => (
+                    <button
+                      key={min}
+                      className={`freq-btn ${strategyConfig.scan_frequency === min ? 'active' : ''}`}
+                      onClick={() => handleConfigChange('scan_frequency', min)}
+                    >
+                      {min}min
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
-
-          {/* SECOND COLUMN: Entry Filters */}
-          <div className="config-card">
-            <h3 className="card-title">Entry Filters</h3>
-
-            <div className="param-item">
-              <div className="param-label-row">
-                <label>Min Probability</label>
-                <span className="param-value">{strategyConfig.min_probability}¢</span>
-              </div>
-              <input
-                type="number"
-                min="95"
-                max="99"
-                value={strategyConfig.min_probability}
-                onChange={(e) => handleConfigChange('min_probability', parseInt(e.target.value))}
-              />
-            </div>
-
-            <div className="param-item">
-              <div className="param-label-row">
-                <label>Max Spread</label>
-                <span className="param-value">{strategyConfig.max_spread}¢</span>
-              </div>
-              <input
-                type="number"
-                min="1"
-                max="10"
-                value={strategyConfig.max_spread}
-                onChange={(e) => handleConfigChange('max_spread', parseInt(e.target.value))}
-              />
-            </div>
-
-            <div className="param-item">
-              <div className="param-label-row">
-                <label>Min Volume</label>
-                <span className="param-value">{strategyConfig.min_volume.toLocaleString()}</span>
-              </div>
-              <input
-                type="number"
-                min="0"
-                max="100000"
-                step="1000"
-                value={strategyConfig.min_volume}
-                onChange={(e) => handleConfigChange('min_volume', parseInt(e.target.value))}
-              />
-            </div>
-
-            <div className="param-item">
-              <div className="param-label-row">
-                <label>Max Time to Expiry</label>
-                <span className="param-value">
-                  {strategyConfig.max_time_to_expiry >= 1 
-                    ? `${strategyConfig.max_time_to_expiry}h`
-                    : `${strategyConfig.max_time_to_expiry * 60}m`
-                  }
-                </span>
-              </div>
-              <input
-                type="number"
-                min="0.1"
-                max="168"
-                step="0.5"
-                value={strategyConfig.max_time_to_expiry}
-                onChange={(e) => handleConfigChange('max_time_to_expiry', parseFloat(e.target.value))}
-              />
-            </div>
-          </div>
-
-          {/* THIRD COLUMN: Frequency */}
-          <div className="config-card">
-            <h3 className="card-title">Frequency</h3>
-
-            <div className="param-item">
-              <label>Scan Every:</label>
-              <div className="button-group">
-                {[1, 5, 10, 15, 30, 45, 60].map(min => (
-                  <button
-                    key={min}
-                    className={`freq-btn ${strategyConfig.scan_frequency === min ? 'active' : ''}`}
-                    onClick={() => handleConfigChange('scan_frequency', min)}
-                  >
-                    {min}min
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
+        )}
 
         {/* Advanced Settings - Collapsible */}
         <div className="advanced-section">

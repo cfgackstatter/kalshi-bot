@@ -283,16 +283,17 @@ def cancel_order(request: CancelRequest):
 # Global strategy state
 scheduler = AsyncIOScheduler()
 strategy_config = {
-    "capital_allocation": 50,
-    "position_size": 5,
-    "min_probability": 98,
-    "scan_frequency": 15,
+    "capital_allocation": 100,
+    "position_size": 10,
+    "min_probability": 96,
+    "scan_frequency": 1,
     "stop_loss": 50,
-    "max_time_to_expiry": 1,
-    "max_pending_age_minutes": 5,
+    "max_time_to_expiry": 0.25,
+    "max_pending_age_minutes": 1,
     "order_delay_seconds": 0.5,
     "max_spread": 2,
     "min_volume": 1,
+    "ticker_exclude_substrings": 'MENTION-,SAY-,NETFLIX,ALBUMSALES,SPOTIFY',
     "enabled": False
 }
 strategy = HighProbStrategy(trader, strategy_config)
@@ -349,6 +350,10 @@ def stop_strategy():
         scheduler.remove_job("strategy_exits")
     
     return {"success": True, "status": "stopped"}
+
+@app.get("/api/strategy/config")
+def get_config():
+    return strategy_config
 
 @app.put("/api/strategy/config")
 def update_config(config: dict):
