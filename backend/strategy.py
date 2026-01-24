@@ -2,6 +2,7 @@ from datetime import datetime, timezone, timedelta
 from time import sleep
 from kalshi_client import KalshiTrader
 import math
+from dateutil import parser
 
 class HighProbStrategy:
     def __init__(self, trader: KalshiTrader, config: dict):
@@ -248,7 +249,7 @@ class HighProbStrategy:
     def _parse_datetime(self, dt):
         """Parse datetime string to timezone-aware datetime."""
         if isinstance(dt, str):
-            dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
+            dt = parser.isoparse(dt)
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         return dt
