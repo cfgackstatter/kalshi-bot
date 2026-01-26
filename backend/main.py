@@ -37,7 +37,7 @@ def get_balance():
 @app.get("/api/markets")
 def get_markets():
     now = datetime.now(timezone.utc)
-    max_close_time = now + timedelta(hours=72)
+    max_close_time = now + timedelta(hours=24)
     max_close_ts = int(max_close_time.timestamp())
     all_markets = trader.get_markets(status="open", max_close_ts=max_close_ts)
     
@@ -266,7 +266,7 @@ strategy_config = {
     "order_delay_seconds": 0.5,
     "max_spread": 2,
     "min_volume": 1,
-    "ticker_exclude_substrings": 'MENTION-,SAY-,NETFLIX,ALBUMSALES,SPOTIFY',
+    "ticker_exclude_substrings": 'MENTION-,SAY-,NETFLIX,ALBUM,SPOTIFY,SONG',
     "enabled": False
 }
 strategy = HighProbStrategy(trader, strategy_config)
