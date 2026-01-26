@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from kalshi_client import KalshiTrader
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from strategy import HighProbStrategy
+from utils import parse_datetime
 import logging
 
 logging.basicConfig(
@@ -15,39 +16,7 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"])
-
 trader = KalshiTrader()
-
-def _safe_parse_datetime(dt_string):
-    """Parse datetime string handling variable microsecond precision."""
-    if not isinstance(dt_string, str):
-        return dt_string
-
-    dt_string = dt_string.replace("Z", "+00:00")
-
-    # Handle microseconds - Python expects 0, 3, or 6 digits
-    if '.' in dt_string and ('+' in dt_string or dt_string.count('-') > 2):
-        parts = dt_string.split('.')
-        if len(parts) == 2:
-            date_part = parts[0]
-            micro_and_tz = parts[1]
-
-            if '+' in micro_and_tz:
-                micro, tz = micro_and_tz.split('+')
-                micro = micro.ljust(6, '0')[:6]
-                dt_string = f"{date_part}.{micro}+{tz}"
-            elif '-' in micro_and_tz and micro_and_tz.index('-') > 2:
-                # Last '-' is timezone separator
-                idx = micro_and_tz.rindex('-')
-                micro = micro_and_tz[:idx]
-                tz = micro_and_tz[idx+1:]
-                micro = micro.ljust(6, '0')[:6]
-                dt_string = f"{date_part}.{micro}-{tz}"
-
-    dt = datetime.fromisoformat(dt_string)
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt
 
 class TradeRequest(BaseModel):
     ticker: str
@@ -74,9 +43,7 @@ def get_markets():
     
     markets = []
     for market in all_markets:
-        close_time = market.close_time
-        close_time = _safe_parse_datetime(close_time)
-        
+        close_time = parse_datetime(market.close_time)        
         time_left = close_time - now
         days = time_left.days
         hours = time_left.seconds // 3600
@@ -151,8 +118,7 @@ def get_positions():
     now = datetime.now(timezone.utc)
     
     for market in markets_list:
-        close_time = _safe_parse_datetime(market.close_time)
-        
+        close_time = parse_datetime(market.close_time)
         time_left = close_time - now
         days = time_left.days
         hours = time_left.seconds // 3600

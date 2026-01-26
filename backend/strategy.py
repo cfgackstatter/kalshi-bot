@@ -1,11 +1,12 @@
 from datetime import datetime, timezone, timedelta
 from time import sleep
 from kalshi_client import KalshiTrader
+from utils import parse_datetime
 import math
 import logging
-from dateutil import parser
 
 logger = logging.getLogger(__name__)
+
 
 class HighProbStrategy:
     def __init__(self, trader: KalshiTrader, config: dict):
@@ -95,7 +96,7 @@ class HighProbStrategy:
             
             now = datetime.now(timezone.utc)
             for order in pending:
-                created = self._parse_datetime(order.created_time)
+                created = parse_datetime(order.created_time)
                 age_minutes = (now - created).total_seconds() / 60
                 if age_minutes > max_age:
                     self.trader.cancel_order(order.order_id)
@@ -200,7 +201,7 @@ class HighProbStrategy:
         if net_profit <= 0:
             return None
         
-        close_time = self._parse_datetime(market.close_time)
+        close_time = parse_datetime(market.close_time)
         hours_to_close = (close_time - datetime.now(timezone.utc)).total_seconds() / 3600
         
         if hours_to_close <= 0 or hours_to_close > self.config["max_time_to_expiry"]:
@@ -218,14 +219,6 @@ class HighProbStrategy:
             "yield": annualized_yield,
             "cost": total_cost
         }
-
-    def _parse_datetime(self, dt):
-        """Parse datetime string to timezone-aware datetime."""
-        if isinstance(dt, str):
-            dt = parser.isoparse(dt)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt
 
     def _place_order(self, opportunity):
         """Place order for opportunity."""
