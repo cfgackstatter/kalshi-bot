@@ -5,6 +5,13 @@ from pydantic import BaseModel
 from kalshi_client import KalshiTrader
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from strategy import HighProbStrategy
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"])
@@ -336,7 +343,7 @@ def start_strategy():
     try:
         strategy.scan_and_execute()
     except Exception as e:
-        print(f"Initial scan failed: {e}")
+        logger.error(f"Initial scan failed: {e}")
     
     return {"success": True, "status": "started"}
 
