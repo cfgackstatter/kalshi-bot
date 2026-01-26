@@ -389,7 +389,7 @@ function App() {
 
       <section>
         <div className="section-header">
-          <h2>Markets expiring within 72h ({filteredMarkets.length})</h2>
+          <h2>Markets expiring within 24h ({filteredMarkets.length})</h2>
           <div className="filters">
             <FilterBtn active={filters.highProb} onClick={() => setFilters({...filters, highProb: !filters.highProb})}>
               High Prob ≥98¢
