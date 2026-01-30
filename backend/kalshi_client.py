@@ -6,7 +6,10 @@ from typing import Optional
 import requests
 import base64
 import time
+from utils import retry_on_api_error
+import logging
 
+logger = logging.getLogger(__name__)
 
 class Settings(BaseSettings):
     kalshi_api_key: str
@@ -45,12 +48,16 @@ class KalshiTrader:
         )
         return base64.b64encode(signature).decode("utf-8")
     
+    def _create_auth(self, method: str, path: str) -> tuple[str, str]:
+        """Create authentication timestamp and signature."""
+        timestamp = str(int(time.time() * 1000))
+        signature = self._sign_request(timestamp, method, path)
+        return timestamp, signature
+    
+    @retry_on_api_error(max_retries=3, backoff_seconds=2)
     def _request(self, method: str, path: str, **kwargs) -> dict:
         """Make authenticated request to Kalshi API."""
-        timestamp = str(int(time.time() * 1000))
-        full_path = f"/trade-api/v2{path}"
-        signature = self._sign_request(timestamp, method, full_path)
-        
+        timestamp, signature = self._create_auth(method, f"/trade-api/v2{path}")
         headers = {
             "KALSHI-ACCESS-KEY": self.api_key,
             "KALSHI-ACCESS-SIGNATURE": signature,
@@ -59,7 +66,7 @@ class KalshiTrader:
         }
         
         response = self.session.request(
-            method, f"{self.base_url}{full_path}", headers=headers, timeout=30, **kwargs
+            method, f"{self.base_url}/trade-api/v2{path}", headers=headers, timeout=30, **kwargs
         )
         response.raise_for_status()
         return response.json()
@@ -117,7 +124,15 @@ class KalshiTrader:
             "type": "limit",
             f"{side}_price": price
         }
-        return self._request("POST", "/portfolio/orders", json=payload)
+        
+        logger.info(f"Creating order payload: {payload}")
+        
+        try:
+            result = self._request("POST", "/portfolio/orders", json=payload)
+            return result
+        except Exception as e:
+            logger.error(f"Create order API error. Payload: {payload}, Error: {e}")
+            raise
     
     def close_position(self, ticker: str, side: str, quantity: int, price: Optional[int] = None, order_type: str = "limit"):
         """Close an existing position."""
@@ -130,7 +145,11 @@ class KalshiTrader:
         }
         if order_type == "limit" and price is not None:
             payload[f"{side}_price"] = price
-
+        
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Close position payload: {payload}")  # ADD THIS
+        
         return self._request("POST", "/portfolio/orders", json=payload)
 
     def get_orders(self, status: str = "resting") -> list:

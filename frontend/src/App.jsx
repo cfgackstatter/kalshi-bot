@@ -246,7 +246,7 @@ function App() {
                 </div>
                 <input
                   type="number"
-                  min="95"
+                  min="50"
                   max="99"
                   value={strategyConfig.min_probability}
                   onChange={(e) => handleConfigChange('min_probability', parseInt(e.target.value))}
@@ -360,18 +360,6 @@ function App() {
                 </div>
 
                 <div className="param-item-compact">
-                  <label>Order Delay (sec):</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="5"
-                    step="0.1"
-                    value={strategyConfig.order_delay_seconds}
-                    onChange={(e) => handleConfigChange('order_delay_seconds', parseFloat(e.target.value))}
-                  />
-                </div>
-
-                <div className="param-item-compact">
                   <label>Exclude Tickers:</label>
                   <input
                     type="text"
@@ -389,7 +377,7 @@ function App() {
 
       <section>
         <div className="section-header">
-          <h2>Markets expiring within 24h ({filteredMarkets.length})</h2>
+          <h2>Markets expiring within 3h ({filteredMarkets.length})</h2>
           <div className="filters">
             <FilterBtn active={filters.highProb} onClick={() => setFilters({...filters, highProb: !filters.highProb})}>
               High Prob ≥98¢
