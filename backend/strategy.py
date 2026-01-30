@@ -160,10 +160,9 @@ class HighProbStrategy:
         return True
     
     def _execute_buy(self, ticker: str, side: str, prices: dict, market):
-        # Check cooldown (don't retry failed orders more than once per 10 seconds)
+        """Execute buy order."""
         now = datetime.now(timezone.utc)
         last_attempt = self.buy_attempts.get(ticker)
-        
         if last_attempt and (now - last_attempt).total_seconds() < 10:
             logger.debug(f"Buy cooldown active for {ticker}")
             return
@@ -173,42 +172,43 @@ class HighProbStrategy:
         mid = (bid + ask) / 2
         order_price = min(int(mid), 99)
         
-        # Calculate position size
         balance_data = self.trader.get_balance()
         total_portfolio = balance_data["balance"] + balance_data["portfolio_value"]
+        available_cash = balance_data["balance"]
+
+        # Calculate desired position size based on total portfolio
         position_capital = total_portfolio * (self.config["position_size"] / 100)
-        
         entry_price = order_price / 100
-        contracts = int(position_capital / entry_price)
+        desired_contracts = int(position_capital / entry_price)
+
+        # Cap by available cash
+        max_affordable_contracts = int(available_cash / entry_price)
+        contracts = min(desired_contracts, max_affordable_contracts)
         
         if contracts < 1:
+            logger.debug(f"Insufficient cash for {ticker}: need ${entry_price:.2f}, have ${available_cash:.2f}")
             return
         
-        # Calculate yield to validate profitability
         if not self._is_profitable(contracts, entry_price, market):
             return
         
         self.buy_attempts[ticker] = now
         
         try:
+            total_cost = contracts * entry_price
             self.trader.create_order(
                 ticker=ticker,
                 side=side,
                 quantity=contracts,
                 price=order_price
             )
-            logger.info(f"BUY: {contracts} {side} @ {order_price}¢ on {ticker}")
+            logger.info(f"BUY {contracts} {side} @ {order_price}¢ on {ticker} (cost: ${total_cost:.2f}, wanted: {desired_contracts})")
             
-            # Add to held positions
             self.held_positions[ticker] = {"side": side, "contracts": contracts}
-            # Remove from monitored (don't double-buy)
             self.monitored_markets.pop(ticker, None)
-            # Clear from cooldown on success
             self.buy_attempts.pop(ticker, None)
-            
         except Exception as e:
             logger.error(f"Buy order failed for {ticker}: {e}")
-            # Don't remove from monitored - but cooldown prevents spam
 
     def _is_profitable(self, contracts: int, entry_price: float, market) -> bool:
         """Check if trade would be profitable after fees."""
