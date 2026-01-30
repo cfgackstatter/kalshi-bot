@@ -81,6 +81,16 @@ class HighProbStrategy:
             ticker_lower = market.ticker.lower()
             if any(excl in ticker_lower for excl in exclusions):
                 return False
+
+        # Check if market has valid liquidity
+        yes_bid = int(float(getattr(market, "yes_bid_dollars", "0")) * 100)
+        yes_ask = int(float(getattr(market, "yes_ask_dollars", "0")) * 100)
+        no_bid = int(float(getattr(market, "no_bid_dollars", "0")) * 100)
+        no_ask = int(float(getattr(market, "no_ask_dollars", "0")) * 100)
+        
+        # Skip markets with no liquidity (can't be traded)
+        if (yes_bid == 0 and yes_ask == 100) or (no_bid == 0 and no_ask == 100):
+            return False
         
         return True
     
@@ -97,16 +107,18 @@ class HighProbStrategy:
         """Check if position should be closed due to stop-loss."""
         position = self.held_positions[ticker]
         side = position["side"]
-        
         bid = prices[f"{side}_bid"]
         ask = prices[f"{side}_ask"]
-        
         spread = ask - bid
         mid = (bid + ask) / 2
         
-        # Stop-loss: mid below threshold AND spread reasonable (market is liquid)
-        if mid <= self.config["stop_loss"] and spread < 50:
-            logger.warning(f"STOP-LOSS triggered: {ticker} {side} @ {mid:.1f}¢ (spread={spread}¢)")
+        # Trigger stop-loss if mid drops below threshold (regardless of spread)
+        if mid < self.config["stop_loss"]:
+            if spread >= 50:
+                logger.warning(f"EMERGENCY STOP-LOSS (wide spread): {ticker} {side} mid={mid:.1f} spread={spread}")
+            else:
+                logger.warning(f"STOP-LOSS triggered: {ticker} {side} mid={mid:.1f} spread={spread}")
+            
             self._execute_stop_loss(ticker, position)
 
     def _check_buying_opportunity(self, ticker: str, prices: dict):
@@ -207,18 +219,31 @@ class HighProbStrategy:
         return net_profit > 0
     
     def _execute_stop_loss(self, ticker: str, position: dict):
-        """Execute stop-loss sell at 1¢ (guaranteed immediate fill)."""
+        """Execute stop-loss sell."""
         try:
+            # Get current market data to determine exit price
+            markets = self.trader.get_markets(tickers=[ticker])
+            if not markets:
+                exit_price = 1  # Default emergency exit
+            else:
+                market = markets[0]
+                side = position["side"]
+                bid = int(float(getattr(market, f"{side}_bid_dollars", "0")) * 100)
+                ask = int(float(getattr(market, f"{side}_ask_dollars", "0")) * 100)
+                spread = ask - bid
+                
+                # If spread is reasonable, try to get bid price; otherwise emergency exit
+                exit_price = max(bid, 1) if spread < 50 else 1
+            
             self.trader.close_position(
                 ticker=ticker,
                 side=position["side"],
                 quantity=position["contracts"],
-                price=1,
+                price=exit_price,
                 order_type="limit"
             )
-            logger.warning(f"STOP-LOSS executed: sold {position['contracts']} {position['side']} on {ticker} @ 1¢")
+            logger.warning(f"STOP-LOSS executed: sold {position['contracts']} {position['side']} on {ticker} @ {exit_price}¢")
             self.held_positions.pop(ticker, None)
-            # Clear from cooldown on success
             self.stop_loss_attempts.pop(ticker, None)
         except Exception as e:
             logger.error(f"Stop-loss execution failed for {ticker}: {e}")
