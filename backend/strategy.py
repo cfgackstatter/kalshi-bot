@@ -92,6 +92,11 @@ class HighProbStrategy:
         if (yes_bid == 0 and yes_ask == 100) or (no_bid == 0 and no_ask == 100):
             return False
         
+        # Skip markets with zero volume
+        volume = getattr(market, "volume", 0) or 0
+        if volume == 0:
+            return False
+        
         return True
     
     def _parse_ticker_prices(self, ticker_data: dict) -> dict:
