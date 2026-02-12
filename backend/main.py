@@ -77,16 +77,26 @@ scheduler = AsyncIOScheduler()
 ws_client = None
 
 strategy_config = {
-    "capital_allocation": 100,
-    "position_size": 10,
+    # Core strategy parameters
     "min_probability": 96,
-    "scan_frequency": 1,
-    "stop_loss": 50,
     "max_time_to_expiry": 0.25,
-    "max_pending_age_minutes": 1,
     "max_spread": 2,
     "min_volume": 1,
     "ticker_exclude_substrings": 'MENTION-,SAY-,NETFLIX,ALBUM,SPOTIFY,SONG',
+    
+    # Kelly sizing parameters
+    "estimated_edge": 0.02,
+    "kelly_fraction": 0.25,
+    "max_position_pct": 0.05,
+    
+    # Risk management
+    "max_loss_percent": 0.30,
+    
+    # Execution parameters
+    "order_at_bid": False,
+    "scan_frequency": 1,
+    "max_pending_age_minutes": 1,
+    
     "enabled": False
 }
 

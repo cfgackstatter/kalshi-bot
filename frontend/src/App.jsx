@@ -198,40 +198,56 @@ function App() {
           <div>Loading configuration...</div>
         ) : (
           <div className="strategy-config-grid">
-            {/* FIRST COLUMN: Capital Settings */}
+            {/* FIRST COLUMN: Kelly Sizing */}
             <div className="config-card">
-              <h3 className="card-title">Capital Settings</h3>
+              <h3 className="card-title">Kelly Sizing</h3>
 
               <div className="param-item">
                 <div className="param-label-row">
-                  <label>Capital Allocation</label>
-                  <span className="param-value">{strategyConfig.capital_allocation}%</span>
+                  <label>Estimated Edge</label>
+                  <span className="param-value">{(strategyConfig.estimated_edge * 100).toFixed(2)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.5"
+                  max="10"
+                  step="0.5"
+                  value={strategyConfig.estimated_edge * 100}
+                  onChange={(e) => handleConfigChange('estimated_edge', parseFloat(e.target.value) / 100)}
+                />
+                <div className="param-hint">Your expected probability advantage</div>
+              </div>
+
+              <div className="param-item">
+                <div className="param-label-row">
+                  <label>Kelly Fraction</label>
+                  <span className="param-value">{(strategyConfig.kelly_fraction * 100).toFixed(0)}%</span>
                 </div>
                 <input
                   type="range"
                   min="10"
                   max="100"
                   step="5"
-                  value={strategyConfig.capital_allocation}
-                  onChange={(e) => handleConfigChange('capital_allocation', parseInt(e.target.value))}
+                  value={strategyConfig.kelly_fraction * 100}
+                  onChange={(e) => handleConfigChange('kelly_fraction', parseFloat(e.target.value) / 100)}
                 />
-                <div className="param-hint">Will use ${(portVal * strategyConfig.capital_allocation / 100).toFixed(2)} of ${portVal.toFixed(2)}</div>
+                <div className="param-hint">25% = Quarter Kelly (conservative)</div>
               </div>
 
               <div className="param-item">
                 <div className="param-label-row">
-                  <label>Position Size</label>
-                  <span className="param-value">{strategyConfig.position_size}%</span>
+                  <label>Max Position Size</label>
+                  <span className="param-value">{(strategyConfig.max_position_pct * 100).toFixed(1)}%</span>
                 </div>
                 <input
                   type="range"
                   min="1"
                   max="20"
-                  step="1"
-                  value={strategyConfig.position_size}
-                  onChange={(e) => handleConfigChange('position_size', parseInt(e.target.value))}
+                  step="0.5"
+                  value={strategyConfig.max_position_pct * 100}
+                  onChange={(e) => handleConfigChange('max_position_pct', parseFloat(e.target.value) / 100)}
                 />
-                <div className="param-hint">~${(portVal * strategyConfig.position_size / 100).toFixed(2)} per position</div>
+                <div className="param-hint">Max ${(portVal * strategyConfig.max_position_pct).toFixed(2)} per position</div>
               </div>
             </div>
 
@@ -288,7 +304,7 @@ function App() {
                   <span className="param-value">
                     {strategyConfig.max_time_to_expiry >= 1 
                       ? `${strategyConfig.max_time_to_expiry}h`
-                      : `${strategyConfig.max_time_to_expiry * 60}m`
+                      : `${(strategyConfig.max_time_to_expiry * 60).toFixed(0)}m`
                     }
                   </span>
                 </div>
@@ -296,16 +312,48 @@ function App() {
                   type="number"
                   min="0.1"
                   max="168"
-                  step="0.5"
+                  step="0.1"
                   value={strategyConfig.max_time_to_expiry}
                   onChange={(e) => handleConfigChange('max_time_to_expiry', parseFloat(e.target.value))}
                 />
               </div>
             </div>
 
-            {/* THIRD COLUMN: Frequency */}
+            {/* THIRD COLUMN: Risk & Execution */}
             <div className="config-card">
-              <h3 className="card-title">Frequency</h3>
+              <h3 className="card-title">Risk & Execution</h3>
+
+              <div className="param-item">
+                <div className="param-label-row">
+                  <label>Max Loss Per Position</label>
+                  <span className="param-value">{(strategyConfig.max_loss_percent * 100).toFixed(0)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="10"
+                  max="50"
+                  step="5"
+                  value={strategyConfig.max_loss_percent * 100}
+                  onChange={(e) => handleConfigChange('max_loss_percent', parseFloat(e.target.value) / 100)}
+                />
+                <div className="param-hint">Stop-loss from entry price</div>
+              </div>
+
+              <div className="param-item">
+                <div className="param-label-row">
+                  <label>Order at Bid (Maker)</label>
+                  <span className="param-value">{strategyConfig.order_at_bid ? 'Yes' : 'No'}</span>
+                </div>
+                <label className="toggle-switch">
+                  <input
+                    type="checkbox"
+                    checked={strategyConfig.order_at_bid}
+                    onChange={(e) => handleConfigChange('order_at_bid', e.target.checked)}
+                  />
+                  <span className="toggle-slider"></span>
+                </label>
+                <div className="param-hint">{strategyConfig.order_at_bid ? 'Slower fills, better price' : 'Faster fills at bid+1'}</div>
+              </div>
 
               <div className="param-item">
                 <label>Scan Every:</label>
@@ -333,40 +381,28 @@ function App() {
           >
             {showAdvanced ? '▼' : '▶'} Advanced Settings
           </button>
-
+          
           {showAdvanced && (
             <div className="advanced-content">
-              <div className="advanced-grid">
-                <div className="param-item-compact">
-                  <label>Stop Loss (¢):</label>
+              <div className="advanced-grid-custom">
+                <div className="param-item-compact short">
+                  <label>Order Max Age (min)</label>
                   <input
                     type="number"
                     min="1"
-                    max="99"
-                    value={strategyConfig.stop_loss}
-                    onChange={(e) => handleConfigChange('stop_loss', parseInt(e.target.value))}
-                  />
-                </div>
-
-                <div className="param-item-compact">
-                  <label>Order Max Age (min):</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="30"
+                    max="60"
                     value={strategyConfig.max_pending_age_minutes}
                     onChange={(e) => handleConfigChange('max_pending_age_minutes', parseInt(e.target.value))}
                   />
                 </div>
-
-                <div className="param-item-compact">
-                  <label>Exclude Tickers:</label>
+                
+                <div className="param-item-compact long">
+                  <label>Exclude Tickers</label>
                   <input
                     type="text"
-                    placeholder="e.g., MENTION-,SAY-,NETFLIX"
                     value={strategyConfig.ticker_exclude_substrings}
                     onChange={(e) => handleConfigChange('ticker_exclude_substrings', e.target.value)}
-                    style={{minWidth: '150px'}}
+                    placeholder="MENTION-,SAY-,NETFLIX,ALBUM"
                   />
                 </div>
               </div>
