@@ -12,14 +12,16 @@ class HighProbStrategy:
         self.trader = trader
         self.config = config
         self.monitored_markets = {}  # {ticker: market_data} for WebSocket monitored tickers
-        self.held_positions = {}  # {ticker: {side, contracts}} for positions we own
+        self.held_positions = {}  # {ticker: {"side": side, "contracts": contracts}} for positions we own
         self.stop_loss_attempts = {}  # {ticker: last_attempt_time} for cooldown
         self.buy_attempts = {}  # {ticker: last_attempt_time}
 
+    # ============================================================================
+    # Public Methods - Called by main.py
+    # ============================================================================
+
     def scan_markets(self):
-        """Periodic scan: find eligible markets based on time/price filters only."""
-        logger.info("=== Scanning for eligible markets ===")
-        
+        """Periodic scan to find eligible markets based on time/price filters."""
         markets = self._fetch_eligible_markets()
         eligible_tickers = []
         
@@ -28,43 +30,59 @@ class HighProbStrategy:
                 eligible_tickers.append(market.ticker)
                 self.monitored_markets[market.ticker] = market
         
-        logger.info(f"Found {len(eligible_tickers)} eligible markets to monitor")
+        logger.info(f"Scan: {len(eligible_tickers)} eligible markets")
         return eligible_tickers
     
     def update_positions(self):
         """Update held positions from API."""
         positions_response = self.trader.get_positions()
         market_positions = getattr(positions_response, "market_positions", [])
-        
+
         self.held_positions = {}
         for pos in market_positions:
             self.held_positions[pos.ticker] = {
                 "side": "yes" if pos.position > 0 else "no",
-                "contracts": abs(pos.position)
+                "contracts": abs(pos.position),
             }
-        
-        logger.info(f"Updated {len(self.held_positions)} positions")
 
     def update_ticker_price(self, ticker_data: dict):
-        """WebSocket callback: check buying opportunity or stop-loss."""
+        """WebSocket callback - check buying opportunity or exit conditions."""
         ticker = ticker_data.get("market_ticker")
-        
         if not ticker:
-            logger.warning(f"No ticker in WebSocket data: {ticker_data}")
             return
         
         prices = self._parse_ticker_prices(ticker_data)
         
-        # Check if we hold this position -> monitor stop-loss
         if ticker in self.held_positions:
-            logger.debug(f"Checking stop-loss for position: {ticker}")
-            self._check_stop_loss(ticker, prices)
-        # Check if it's a monitored market -> check buying opportunity
+            self._check_exit_conditions(ticker, prices)
         elif ticker in self.monitored_markets:
-            logger.debug(f"Checking buying opportunity for: {ticker}")
             self._check_buying_opportunity(ticker, prices)
-        else:
-            logger.debug(f"Ticker {ticker} not in positions or monitored markets")
+
+    def cleanup_pending_orders(self):
+        """Cancel orders older than max_pending_age_minutes."""
+        max_age = self.config.get("max_pending_age_minutes", 5)
+        try:
+            pending = self.trader.get_orders(status="resting")
+            if not pending:
+                return
+
+            now = datetime.now(timezone.utc)
+            for order in pending:
+                try:
+                    created = parse_datetime(order.created_time)
+                    age_minutes = (now - created).total_seconds() / 60
+
+                    if age_minutes > max_age:
+                        self.trader.cancel_order(order.order_id)
+                        logger.info(f"Cancelled stale order: {order.ticker}")
+                except Exception as e:
+                    logger.error(f"Failed to cancel order {order.order_id}: {e}")
+        except Exception as e:
+            logger.error(f"Cleanup failed: {e}")
+
+    # ============================================================================
+    # Private Methods - Internal Strategy Logic
+    # ============================================================================
 
     def _fetch_eligible_markets(self):
         """Fetch markets within time window."""
@@ -73,58 +91,52 @@ class HighProbStrategy:
         return self.trader.get_markets(status="open", max_close_ts=int(max_close_time.timestamp()))
     
     def _passes_basic_filters(self, market) -> bool:
-        """Apply time and price validity filters only."""
-        # Check ticker exclusions
+        """Apply ticker exclusions, liquidity, and volume filters."""
         exclude_substrings = self.config.get("ticker_exclude_substrings", "")
         if exclude_substrings:
             exclusions = [s.strip().lower() for s in exclude_substrings.split(",") if s.strip()]
-            ticker_lower = market.ticker.lower()
-            if any(excl in ticker_lower for excl in exclusions):
+            if any(excl in market.ticker.lower() for excl in exclusions):
                 return False
-
-        # Check if market has valid liquidity
+        
         yes_bid = int(float(getattr(market, "yes_bid_dollars", "0")) * 100)
         yes_ask = int(float(getattr(market, "yes_ask_dollars", "0")) * 100)
         no_bid = int(float(getattr(market, "no_bid_dollars", "0")) * 100)
         no_ask = int(float(getattr(market, "no_ask_dollars", "0")) * 100)
         
-        # Skip markets with no liquidity (can't be traded)
-        if (yes_bid == 0 and yes_ask == 100) or (no_bid == 0 and no_ask == 100):
-            return False
-        
-        # Skip markets with zero volume
-        volume = getattr(market, "volume", 0) or 0
-        if volume == 0:
-            return False
-        
-        return True
+        return not ((yes_bid == 0 and yes_ask == 100) or (no_bid == 0 and no_ask == 100)) and (getattr(market, "volume", 0) or 0) > 0
     
     def _parse_ticker_prices(self, ticker_data: dict) -> dict:
         """Extract prices from WebSocket ticker data."""
         return {
-            "yes_bid": int(float(ticker_data.get("yes_bid_dollars", 0)) * 100),
-            "yes_ask": int(float(ticker_data.get("yes_ask_dollars", 0)) * 100),
-            "no_bid": int(float(ticker_data.get("no_bid_dollars", 0)) * 100),
-            "no_ask": int(float(ticker_data.get("no_ask_dollars", 0)) * 100),
+            "yes_bid": int(float(ticker_data.get("yes_bid_dollars", "0")) * 100),
+            "yes_ask": int(float(ticker_data.get("yes_ask_dollars", "0")) * 100),
+            "no_bid": int(float(ticker_data.get("no_bid_dollars", "0")) * 100),
+            "no_ask": int(float(ticker_data.get("no_ask_dollars", "0")) * 100),
         }
 
-    def _check_stop_loss(self, ticker: str, prices: dict):
-        """Check if position should be closed due to stop-loss."""
+    def _check_exit_conditions(self, ticker: str, prices: dict):
+        """Check if position should be closed due to take-profit or stop-loss."""
         position = self.held_positions[ticker]
         side = position["side"]
         bid = prices[f"{side}_bid"]
         ask = prices[f"{side}_ask"]
         spread = ask - bid
         mid = (bid + ask) / 2
-        
-        # Trigger stop-loss if mid drops below threshold (regardless of spread)
+
+        # Take-profit: Exit at 100¢ bid to lock in gains
+        if bid >= 100:
+            logger.info(f"TAKE-PROFIT triggered: {ticker} {side} bid={bid}¢")
+            self._close_position(ticker, position)
+            return
+
+        # Stop-loss: Trigger if mid drops below threshold
         if mid < self.config["stop_loss"]:
             if spread >= 50:
                 logger.warning(f"EMERGENCY STOP-LOSS (wide spread): {ticker} {side} mid={mid:.1f} spread={spread}")
             else:
                 logger.warning(f"STOP-LOSS triggered: {ticker} {side} mid={mid:.1f} spread={spread}")
-            
-            self._execute_stop_loss(ticker, position)
+
+            self._close_position(ticker, position)
 
     def _check_buying_opportunity(self, ticker: str, prices: dict):
         """Check if market meets all buying criteria."""
@@ -132,8 +144,7 @@ class HighProbStrategy:
         if not market:
             logger.debug(f"Ticker {ticker} not in monitored markets")
             return
-        
-        # Check both sides
+
         for side in ["yes", "no"]:
             if self._should_buy(ticker, side, prices, market):
                 self._execute_buy(ticker, side, prices, market)
@@ -142,26 +153,26 @@ class HighProbStrategy:
         """Apply all buying criteria."""
         bid = prices[f"{side}_bid"]
         ask = prices[f"{side}_ask"]
-        
+
         # Check spread
         spread = ask - bid
         if spread > self.config.get("max_spread", 99):
             return False
-        
-        # Check minimum probability (using mid)
+
+        # Check minimum probability using mid
         mid = (bid + ask) / 2
         if mid < self.config["min_probability"]:
             return False
-        
+
         # Check volume
         volume = getattr(market, "volume", 0) or 0
         if volume < self.config.get("min_volume", 0):
             return False
-        
+
         # Check if already held
         if ticker in self.held_positions:
             return False
-        
+
         return True
     
     def _execute_buy(self, ticker: str, side: str, prices: dict, market):
@@ -169,14 +180,14 @@ class HighProbStrategy:
         now = datetime.now(timezone.utc)
         last_attempt = self.buy_attempts.get(ticker)
         if last_attempt and (now - last_attempt).total_seconds() < 10:
-            logger.debug(f"Buy cooldown active for {ticker}")
             return
-        
+
         bid = prices[f"{side}_bid"]
         ask = prices[f"{side}_ask"]
-        mid = (bid + ask) / 2
-        order_price = min(int(mid), 99)
-        
+
+        # Buy at bid+1 for faster fills (still profitable at 96+)
+        order_price = min(bid + 1, 98)
+
         balance_data = self.trader.get_balance()
         total_portfolio = balance_data["balance"] + balance_data["portfolio_value"]
         available_cash = balance_data["balance"]
@@ -189,16 +200,12 @@ class HighProbStrategy:
         # Cap by available cash
         max_affordable_contracts = int(available_cash / entry_price)
         contracts = min(desired_contracts, max_affordable_contracts)
-        
+
         if contracts < 1:
-            logger.debug(f"Insufficient cash for {ticker}: need ${entry_price:.2f}, have ${available_cash:.2f}")
             return
-        
-        if not self._is_profitable(contracts, entry_price, market):
-            return
-        
+
         self.buy_attempts[ticker] = now
-        
+
         try:
             total_cost = contracts * entry_price
             self.trader.create_order(
@@ -208,23 +215,15 @@ class HighProbStrategy:
                 price=order_price
             )
             logger.info(f"BUY {contracts} {side} @ {order_price}¢ on {ticker} (cost: ${total_cost:.2f}, wanted: {desired_contracts})")
-            
+
             self.held_positions[ticker] = {"side": side, "contracts": contracts}
             self.monitored_markets.pop(ticker, None)
             self.buy_attempts.pop(ticker, None)
         except Exception as e:
             logger.error(f"Buy order failed for {ticker}: {e}")
 
-    def _is_profitable(self, contracts: int, entry_price: float, market) -> bool:
-        """Check if trade would be profitable after fees."""
-        total_cost = contracts * entry_price
-        total_fees = math.ceil(0.07 * contracts * entry_price * (1 - entry_price) * 100) / 100
-        payout = contracts * 1.0
-        net_profit = payout - total_cost - total_fees
-        return net_profit > 0
-    
-    def _execute_stop_loss(self, ticker: str, position: dict):
-        """Execute stop-loss sell."""
+    def _close_position(self, ticker: str, position: dict):
+        """Close position at best available price."""
         try:
             # Get current market data to determine exit price
             markets = self.trader.get_markets(tickers=[ticker])
@@ -236,10 +235,10 @@ class HighProbStrategy:
                 bid = int(float(getattr(market, f"{side}_bid_dollars", "0")) * 100)
                 ask = int(float(getattr(market, f"{side}_ask_dollars", "0")) * 100)
                 spread = ask - bid
-                
+
                 # If spread is reasonable, try to get bid price; otherwise emergency exit
                 exit_price = max(bid, 1) if spread < 50 else 1
-            
+
             self.trader.close_position(
                 ticker=ticker,
                 side=position["side"],
@@ -247,30 +246,9 @@ class HighProbStrategy:
                 price=exit_price,
                 order_type="limit"
             )
-            logger.warning(f"STOP-LOSS executed: sold {position['contracts']} {position['side']} on {ticker} @ {exit_price}¢")
+            logger.info(f"CLOSED {position['contracts']} {position['side']} on {ticker} @ {exit_price}¢")
+
             self.held_positions.pop(ticker, None)
             self.stop_loss_attempts.pop(ticker, None)
         except Exception as e:
-            logger.error(f"Stop-loss execution failed for {ticker}: {e}")
-
-    def cleanup_pending_orders(self):
-        """Cancel orders older than max_age_minutes."""
-        max_age = self.config.get("max_pending_age_minutes", 5)
-        try:
-            pending = self.trader.get_orders(status='resting')
-            if not pending:
-                return
-            
-            now = datetime.now(timezone.utc)
-            for order in pending:
-                try:
-                    created = parse_datetime(order.created_time)
-                    age_minutes = (now - created).total_seconds() / 60
-                    if age_minutes > max_age:
-                        self.trader.cancel_order(order.order_id)
-                        logger.info(f"Cancelled stale order: {order.ticker} (age: {age_minutes:.1f}min)")
-                except Exception as e:
-                    logger.error(f"Failed to cancel order {order.order_id}: {e}")
-        except Exception as e:
-            logger.error(f"Cleanup failed: {e}")
-            # Don't crash, just log and continue
+            logger.error(f"Position close failed for {ticker}: {e}")

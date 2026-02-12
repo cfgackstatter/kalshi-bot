@@ -146,10 +146,6 @@ class KalshiTrader:
         if order_type == "limit" and price is not None:
             payload[f"{side}_price"] = price
         
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.info(f"Close position payload: {payload}")  # ADD THIS
-        
         return self._request("POST", "/portfolio/orders", json=payload)
 
     def get_orders(self, status: str = "resting") -> list:

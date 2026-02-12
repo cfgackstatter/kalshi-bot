@@ -108,7 +108,7 @@ function App() {
     const no_mid = (m.no_bid + m.no_ask) / 2
     const spread = m.yes_ask - m.yes_bid
     return (
-      (!filters.highProb || (yes_mid >= 98 || no_mid >= 98)) &&
+      (!filters.highProb || (yes_mid >= 96 || no_mid >= 96)) &&
       (!filters.tightSpread || spread <= 2) &&
       (!filters.highVolume || m.volume >= 10000)
     )
@@ -377,10 +377,10 @@ function App() {
 
       <section>
         <div className="section-header">
-          <h2>Markets expiring within 3h ({filteredMarkets.length})</h2>
+          <h2>Markets expiring within 1h ({filteredMarkets.length})</h2>
           <div className="filters">
             <FilterBtn active={filters.highProb} onClick={() => setFilters({...filters, highProb: !filters.highProb})}>
-              High Prob ≥98¢
+              High Prob ≥96¢
             </FilterBtn>
             <FilterBtn active={filters.tightSpread} onClick={() => setFilters({...filters, tightSpread: !filters.tightSpread})}>
               Tight Spread ≤2¢

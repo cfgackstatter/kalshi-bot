@@ -27,7 +27,6 @@ class KalshiWebSocket:
         
         ws_url = self.trader.base_url.replace("https://", "wss://") + "/trade-api/ws/v2"
         self.ws = await connect(ws_url, additional_headers=headers)
-        logger.info("WebSocket connected")
         
     async def subscribe_tickers(self, tickers: list[str]):
         """Subscribe to ticker updates for specific markets."""
@@ -44,7 +43,6 @@ class KalshiWebSocket:
         }
         await self.ws.send(json.dumps(msg))
         self.message_id += 1
-        logger.info(f"Subscribed to {len(tickers)} tickers")
         
     async def listen(self):
         """Listen for ticker updates and invoke callback."""

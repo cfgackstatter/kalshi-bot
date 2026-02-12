@@ -1,3 +1,4 @@
+import requests
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -11,40 +12,61 @@ from utils import parse_datetime
 import asyncio
 import logging
 from logging.handlers import RotatingFileHandler
+from dataclasses import dataclass
 
-# Separate handlers for different log levels
+# Simplified logging setup in main.py
 error_handler = RotatingFileHandler(
     'bot_errors.log',
-    maxBytes=5*1024*1024,  # 5MB
-    backupCount=3
-)
-error_handler.setLevel(logging.WARNING)  # Only WARNING and ERROR
-error_handler.setFormatter(logging.Formatter(
-    '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-))
-
-debug_handler = RotatingFileHandler(
-    'bot_debug.log',
-    maxBytes=2*1024*1024,  # 2MB (smaller, rotates more)
+    maxBytes=5*1024*1024,
     backupCount=2
 )
-debug_handler.setLevel(logging.DEBUG)
-debug_handler.setFormatter(logging.Formatter(
+error_handler.setLevel(logging.WARNING)
+error_handler.setFormatter(logging.Formatter(
     '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 ))
 
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.INFO)
-console_handler.setFormatter(logging.Formatter(
-    '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-))
 
 logging.basicConfig(
-    level=logging.DEBUG,
-    handlers=[error_handler, debug_handler, console_handler]
+    level=logging.INFO,
+    handlers=[error_handler, console_handler]
 )
 
 logger = logging.getLogger(__name__)
+
+@dataclass
+class MarketPrices:
+    yes_bid: int
+    yes_ask: int
+    no_bid: int
+    no_ask: int
+    
+    @classmethod
+    def from_market(cls, market):
+        return cls(
+            yes_bid=int(float(getattr(market, "yes_bid_dollars", "0")) * 100),
+            yes_ask=int(float(getattr(market, "yes_ask_dollars", "0")) * 100),
+            no_bid=int(float(getattr(market, "no_bid_dollars", "0")) * 100),
+            no_ask=int(float(getattr(market, "no_ask_dollars", "0")) * 100)
+        )
+    
+def format_market_time_info(market, now):
+    """Extract time and price info from market object."""
+    close_time = parse_datetime(market.close_time)
+    time_left = close_time - now
+    prices = MarketPrices.from_market(market)
+    
+    return {
+        "close_time": close_time,
+        "time_left": time_left,
+        "days_left": time_left.days,
+        "hours_left": time_left.seconds // 3600,
+        "minutes_left": (time_left.seconds % 3600) // 60,
+        "total_seconds_left": time_left.total_seconds(),
+        "settlement_seconds": getattr(market, "settlement_timer_seconds", 0),
+        **prices.__dict__
+    }
 
 # ============================================================================
 # Setup & Configuration
@@ -115,156 +137,144 @@ class CancelRequest(BaseModel):
 
 @app.get("/api/balance")
 def get_balance():
-    return trader.get_balance()
+    try:
+        return trader.get_balance()
+    except requests.exceptions.Timeout:
+        logger.warning("Kalshi API timeout in /api/balance")
+        return {"balance": 0, "portfolio_value": 0, "error": "API timeout"}
+    except Exception as e:
+        logger.error(f"Error fetching balance: {e}")
+        return {"balance": 0, "portfolio_value": 0, "error": str(e)}
 
 @app.get("/api/markets")
 def get_markets():
-    now = datetime.now(timezone.utc)
-    max_close_time = now + timedelta(hours=3)
-    max_close_ts = int(max_close_time.timestamp())
-    all_markets = trader.get_markets(status="open", max_close_ts=max_close_ts)
-    
-    markets = []
-    for market in all_markets:
-        close_time = parse_datetime(market.close_time)
-        time_left = close_time - now
-        days = time_left.days
-        hours = time_left.seconds // 3600
-        minutes = (time_left.seconds % 3600) // 60
-        total_seconds = time_left.total_seconds()
+    try:
+        now = datetime.now(timezone.utc)
+        max_close_time = now + timedelta(hours=1)
+        max_close_ts = int(max_close_time.timestamp())
         
-        yes_bid = int(float(getattr(market, "yes_bid_dollars", "0")) * 100)
-        yes_ask = int(float(getattr(market, "yes_ask_dollars", "0")) * 100)
-        no_bid = int(float(getattr(market, "no_bid_dollars", "0")) * 100)
-        no_ask = int(float(getattr(market, "no_ask_dollars", "0")) * 100)
-        settlement_seconds = getattr(market, "settlement_timer_seconds", 0)
+        all_markets = trader.get_markets(status="open", max_close_ts=max_close_ts)
+        
+        markets = []
+        for market in all_markets:
+            info = format_market_time_info(market, now)
+    
+            # Skip markets with no liquidity
+            if (info["yes_bid"] == 0 and info["yes_ask"] == 100) or (info["no_bid"] == 0 and info["no_ask"] == 100):
+                continue
+            
+            markets.append({
+                "ticker": market.ticker,
+                "title": getattr(market, "title", market.ticker),
+                "subtitle": getattr(market, "subtitle", ""),
+                "yes_sub_title": getattr(market, "yes_sub_title", ""),
+                "no_sub_title": getattr(market, "no_sub_title", ""),
+                "volume": getattr(market, "volume", 0) or 0,
+                "open_interest": getattr(market, "open_interest", 0) or 0,
+                **info
+            })
 
-        # Skip markets with no liquidity on either side (can't be traded)
-        if (yes_bid == 0 and yes_ask == 100) or (no_bid == 0 and no_ask == 100):
-            continue
-        
-        markets.append({
-            "ticker": market.ticker,
-            "title": getattr(market, "title", market.ticker),
-            "subtitle": getattr(market, "subtitle", ""),
-            "yes_sub_title": getattr(market, "yes_sub_title", ""),
-            "no_sub_title": getattr(market, "no_sub_title", ""),
-            "yes_bid": yes_bid,
-            "yes_ask": yes_ask,
-            "no_bid": no_bid,
-            "no_ask": no_ask,
-            "volume": getattr(market, "volume", 0) or 0,
-            "open_interest": getattr(market, "open_interest", 0) or 0,
-            "close_time": close_time.isoformat(),
-            "days_left": days,
-            "hours_left": hours,
-            "minutes_left": minutes,
-            "total_seconds_left": total_seconds,
-            "settlement_seconds": settlement_seconds,
-        })
+        markets.sort(key=lambda m: m["total_seconds_left"])
+        return {"markets": markets, "count": len(markets)}
     
-    markets.sort(key=lambda m: m["total_seconds_left"])
-    return {"markets": markets, "count": len(markets)}
+    except requests.exceptions.Timeout:
+        logger.warning("Kalshi API timeout in /api/markets")
+        return {"markets": [], "count": 0, "error": "API timeout"}
+    except Exception as e:
+        logger.error(f"Error fetching markets: {e}")
+        return {"markets": [], "count": 0, "error": str(e)}
 
 @app.get("/api/orders")
 def get_orders():
-    orders = trader.get_orders(status="resting")
-    order_list = []
-    for order in orders:
-        order_list.append({
-            "order_id": order.order_id,
-            "ticker": order.ticker,
-            "side": order.side,
-            "action": order.action,
-            "price": getattr(order, f"{order.side}_price", 0),
-            "remaining_count": order.remaining_count,
-            "initial_count": order.initial_count,
-            "created_time": order.created_time,
-        })
-    return {"orders": order_list, "count": len(order_list)}
+    try:
+        orders = trader.get_orders(status="resting")
+        order_list = []
+        for order in orders:
+            order_list.append({
+                "order_id": order.order_id,
+                "ticker": order.ticker,
+                "side": order.side,
+                "action": order.action,
+                "price": getattr(order, f"{order.side}_price", 0),
+                "remaining_count": order.remaining_count,
+                "initial_count": order.initial_count,
+                "created_time": order.created_time,
+            })
+        return {"orders": order_list, "count": len(order_list)}
+    except requests.exceptions.Timeout:
+        logger.warning("Kalshi API timeout in /api/orders")
+        return {"orders": [], "count": 0, "error": "API timeout"}
+    except Exception as e:
+        logger.error(f"Error fetching orders: {e}")
+        return {"orders": [], "count": 0, "error": str(e)}
 
 @app.get("/api/positions")
 def get_positions():
-    positions_response = trader.get_positions()
-    market_positions = getattr(positions_response, "market_positions", [])
+    try:
+        positions_response = trader.get_positions()
+        market_positions = getattr(positions_response, "market_positions", [])
+
+        if not market_positions:
+            return {"positions": [], "count": 0}
     
-    if not market_positions:
-        return {"positions": [], "count": 0}
+        tickers = [pos.ticker for pos in market_positions]
+        markets_list = trader.get_markets(tickers=tickers)
+        markets_data = {}
+        now = datetime.now(timezone.utc)
+        
+        for market in markets_list:
+            info = format_market_time_info(market, now)
+            markets_data[market.ticker] = info
+        
+        positions = []
+        for pos in market_positions:
+            market_info = markets_data.get(pos.ticker, {
+                "last_price": 50, "yes_bid": 0, "yes_ask": 0, "no_bid": 0, "no_ask": 0,
+                "days_left": 0, "hours_left": 0, "minutes_left": 0, "total_seconds_left": 0,
+            })
+            
+            contracts = pos.position
+            total_cost = float(pos.market_exposure_dollars)
+            fees_paid = float(pos.fees_paid_dollars)
+            cost_with_fees = total_cost + fees_paid
+            avg_price_with_fees = (cost_with_fees / abs(contracts) * 100) if contracts != 0 else 0
+            
+            side = "yes" if contracts > 0 else "no"
+            contracts = abs(contracts)
+            current_bid = market_info["yes_bid"] if side == "yes" else market_info["no_bid"]
+            payout_if_right = contracts * 1.0
+            market_value = contracts * current_bid / 100
+            unrealized_return = market_value - cost_with_fees
+            
+            positions.append({
+                "ticker": pos.ticker,
+                "side": side,
+                "current_bid": current_bid,
+                "contracts": contracts,
+                "avg_price": avg_price_with_fees,
+                "cost": cost_with_fees,
+                "payout_if_right": payout_if_right,
+                "market_value": market_value,
+                "unrealized_return": unrealized_return,
+                "days_left": market_info["days_left"],
+                "hours_left": market_info["hours_left"],
+                "minutes_left": market_info["minutes_left"],
+                "total_seconds_left": market_info["total_seconds_left"],
+                "yes_bid": market_info["yes_bid"],
+                "yes_ask": market_info["yes_ask"],
+                "no_bid": market_info["no_bid"],
+                "no_ask": market_info["no_ask"],
+            })
+        
+        positions.sort(key=lambda p: p["total_seconds_left"])
+        return {"positions": positions, "count": len(positions)}
     
-    tickers = [pos.ticker for pos in market_positions]
-    markets_list = trader.get_markets(tickers=tickers)
-    markets_data = {}
-    now = datetime.now(timezone.utc)
-    
-    for market in markets_list:
-        close_time = parse_datetime(market.close_time)
-        time_left = close_time - now
-        days = time_left.days
-        hours = time_left.seconds // 3600
-        minutes = (time_left.seconds % 3600) // 60
-        total_seconds = time_left.total_seconds()
-        
-        yes_bid = int(float(getattr(market, "yes_bid_dollars", "0")) * 100)
-        yes_ask = int(float(getattr(market, "yes_ask_dollars", "0")) * 100)
-        no_bid = int(float(getattr(market, "no_bid_dollars", "0")) * 100)
-        no_ask = int(float(getattr(market, "no_ask_dollars", "0")) * 100)
-        settlement_seconds = getattr(market, "settlement_timer_seconds", 0)
-        
-        markets_data[market.ticker] = {
-            "last_price": getattr(market, "last_price", yes_ask),
-            "yes_bid": yes_bid,
-            "yes_ask": yes_ask,
-            "no_bid": no_bid,
-            "no_ask": no_ask,
-            "days_left": days,
-            "hours_left": hours,
-            "minutes_left": minutes,
-            "total_seconds_left": total_seconds,
-            "settlement_seconds": settlement_seconds,
-        }
-    
-    positions = []
-    for pos in market_positions:
-        market_info = markets_data.get(pos.ticker, {
-            "last_price": 50, "yes_bid": 0, "yes_ask": 0, "no_bid": 0, "no_ask": 0,
-            "days_left": 0, "hours_left": 0, "minutes_left": 0, "total_seconds_left": 0,
-        })
-        
-        contracts = pos.position
-        total_cost = float(pos.market_exposure_dollars)
-        fees_paid = float(pos.fees_paid_dollars)
-        cost_with_fees = total_cost + fees_paid
-        avg_price_with_fees = (cost_with_fees / abs(contracts) * 100) if contracts != 0 else 0
-        
-        side = "yes" if contracts > 0 else "no"
-        contracts = abs(contracts)
-        current_bid = market_info["yes_bid"] if side == "yes" else market_info["no_bid"]
-        payout_if_right = contracts * 1.0
-        market_value = contracts * current_bid / 100
-        unrealized_return = market_value - cost_with_fees
-        
-        positions.append({
-            "ticker": pos.ticker,
-            "side": side,
-            "current_bid": current_bid,
-            "contracts": contracts,
-            "avg_price": avg_price_with_fees,
-            "cost": cost_with_fees,
-            "payout_if_right": payout_if_right,
-            "market_value": market_value,
-            "unrealized_return": unrealized_return,
-            "days_left": market_info["days_left"],
-            "hours_left": market_info["hours_left"],
-            "minutes_left": market_info["minutes_left"],
-            "total_seconds_left": market_info["total_seconds_left"],
-            "yes_bid": market_info["yes_bid"],
-            "yes_ask": market_info["yes_ask"],
-            "no_bid": market_info["no_bid"],
-            "no_ask": market_info["no_ask"],
-        })
-    
-    positions.sort(key=lambda p: p["total_seconds_left"])
-    return {"positions": positions, "count": len(positions)}
+    except requests.exceptions.Timeout:
+        logger.warning("Kalshi API timeout in /api/positions")
+        return {"positions": [], "count": 0, "error": "API timeout"}
+    except Exception as e:
+        logger.error(f"Error fetching positions: {e}")
+        return {"positions": [], "count": 0, "error": str(e)}
 
 # ============================================================================
 # Trading Endpoints
@@ -376,44 +386,22 @@ async def scan_and_subscribe():
     """Scan for eligible markets and subscribe to WebSocket."""
     try:
         strategy.cleanup_pending_orders()
-    except Exception as e:
-        logger.error(f"Cleanup failed: {e}")
-        # Continue anyway
-
-    try:
         strategy.update_positions()
-    except Exception as e:
-        logger.error(f"Update positions failed: {e}")
-        # Use cached positions if available
-    
-    # Get eligible tickers from open markets
-    try:
         eligible_tickers = strategy.scan_markets()
     except Exception as e:
-        logger.error(f"Market scan failed: {e}")
-        # Use existing monitored markets if scan fails
+        logger.error(f"Scan/update failed: {e}")
         eligible_tickers = list(strategy.monitored_markets.keys())
-
-    # Add held position tickers (even if market closed)
-    position_tickers = list(strategy.held_positions.keys())
-    all_tickers = list(set(eligible_tickers + position_tickers))
+    
+    all_tickers = list(set(eligible_tickers + list(strategy.held_positions.keys())))
     
     if ws_client and all_tickers:
         try:
-            # Close and reconnect to clear all subscriptions
             if ws_client.ws:
                 await ws_client.ws.close()
                 ws_client.ws = None
-        
-            # Reconnect
             await ws_client.connect()
-        
-            # Start listening again (in background)
             asyncio.create_task(ws_client.listen())
-        
-            # Subscribe to all tickers
             await ws_client.subscribe_tickers(all_tickers)
-    
-            logger.info(f"Monitoring {len(all_tickers)} tickers via WebSocket ({len(position_tickers)} positions, {len(eligible_tickers)} opportunities)")
+            logger.info(f"Monitoring {len(all_tickers)} tickers ({len(strategy.held_positions)} positions)")
         except Exception as e:
             logger.error(f"WebSocket reconnection failed: {e}")
