@@ -532,8 +532,8 @@ function App() {
                     <td className="uppercase">{p.side}</td>
                     <td>{p.current_bid}¢</td>
                     <td>{p.contracts}</td>
-                    <td>{p.avg_price.toFixed(2)}¢</td>
-                    <td>${p.cost.toFixed(2)}</td>
+                    <td>${p.avg_price.toFixed(4).replace(/\.?0+$/, '')}</td>
+                    <td>${p.cost.toFixed(4).replace(/\.?0+$/, '')}</td>
                     <td>${p.payout_if_right.toFixed(2)} ({payoutPct}%)</td>
                     <td>${p.market_value.toFixed(2)}</td>
                     <td className={retPct >= 0 ? 'positive' : 'negative'}>
