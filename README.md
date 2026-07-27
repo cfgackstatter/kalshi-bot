@@ -26,7 +26,7 @@ npm install  # first time only
 npm run dev
 ```
 
-Access the dashboard at `http://localhost:5173`
+Access the dashboard at `http://localhost:3000`
 
 ## Configuration
 

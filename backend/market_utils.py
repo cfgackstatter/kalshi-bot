@@ -22,11 +22,26 @@ class MarketPrices:
 
     @classmethod
     def from_ticker_data(cls, data: dict):
+        """
+        Build MarketPrices from a Kalshi ticker message.
+
+        The WS ticker only includes yes_bid_dollars / yes_ask_dollars.
+        We infer the NO side as:
+        no_bid  ≈ max(0, 1 - yes_ask)
+        no_ask  ≈ max(0, 1 - yes_bid)
+        """
+        yes_bid_d = float(data.get("yes_bid_dollars", "0"))
+        yes_ask_d = float(data.get("yes_ask_dollars", "0"))
+
+        # Infer NO side from YES side (binary market)
+        no_bid_d = max(0.0, 1.0 - yes_ask_d)
+        no_ask_d = max(0.0, 1.0 - yes_bid_d)
+
         return cls(
-            yes_bid=int(float(data.get("yes_bid_dollars", "0")) * 100),
-            yes_ask=int(float(data.get("yes_ask_dollars", "0")) * 100),
-            no_bid =int(float(data.get("no_bid_dollars",  "0")) * 100),
-            no_ask =int(float(data.get("no_ask_dollars",  "0")) * 100),
+            yes_bid=int(yes_bid_d * 100),
+            yes_ask=int(yes_ask_d * 100),
+            no_bid =int(no_bid_d  * 100),
+            no_ask =int(no_ask_d  * 100),
         )
 
     def for_side(self, side: str) -> tuple[int, int]:

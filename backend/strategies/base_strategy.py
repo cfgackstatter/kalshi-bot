@@ -7,6 +7,7 @@ from utils import parse_datetime
 import logging
 
 logger = logging.getLogger(__name__)
+trade_logger = logging.getLogger("trades")
 
 
 class BaseStrategy(ABC):
@@ -30,10 +31,14 @@ class BaseStrategy(ABC):
         """Scan for eligible markets; populate monitored_markets. Return tickers."""
 
     def update_ticker_price(self, ticker_data: dict):
-        """WebSocket callback — route to exit check or buy check."""
+        # Ignore all ticks when strategy is disabled
+        if not self.config.get("enabled", False):
+            return
+
         ticker = ticker_data.get("market_ticker")
         if not ticker:
             return
+
         prices = MarketPrices.from_ticker_data(ticker_data)
         if ticker in self.held_positions:
             self._check_exit_conditions(ticker, prices)
@@ -41,17 +46,41 @@ class BaseStrategy(ABC):
             self._check_buying_opportunity(ticker, prices)
 
     def update_positions(self):
-        """Sync held_positions with Kalshi API, preserving entry metadata."""
-        response         = self.trader.get_positions()
+        response = self.trader.get_positions()
         market_positions = getattr(response, "market_positions", [])
 
         for pos in market_positions:
             existing = self.held_positions.get(pos.ticker, {})
+            side = "yes" if pos.position > 0 else "no"
+            contracts = abs(pos.position)
+
+            # Preserve entry_price from memory; infer from Kalshi if missing
+            entry_price = existing.get("entry_price")
+            if entry_price is None and contracts > 0:
+                try:
+                    cost_excl_fees = float(pos.market_exposure_dollars)
+                    entry_price = round(cost_excl_fees / contracts * 100)  # dollars → cents
+                    logger.info(
+                        f"[Positions] Inferred entry_price for {pos.ticker} "
+                        f"{side.upper()}: {entry_price}¢ from market_exposure"
+                    )
+                except Exception as e:
+                    logger.warning(f"[Positions] Could not infer entry_price for {pos.ticker}: {e}")
+
+            # Preserve entry_time from memory; use now as fallback
+            entry_time = existing.get("entry_time")
+            if entry_time is None:
+                entry_time = datetime.now(timezone.utc).isoformat()
+                logger.info(
+                    f"[Positions] No entry_time for {pos.ticker}, using now as fallback "
+                    f"(max_hold_minutes will be measured from restart)"
+                )
+
             self.held_positions[pos.ticker] = {
-                "side":        "yes" if pos.position > 0 else "no",
-                "contracts":   abs(pos.position),
-                "entry_price": existing.get("entry_price"),
-                "entry_time":  existing.get("entry_time"),
+                "side":        side,
+                "contracts":   contracts,
+                "entry_price": entry_price,
+                "entry_time":  entry_time,
             }
 
         active = {pos.ticker for pos in market_positions}
@@ -79,16 +108,23 @@ class BaseStrategy(ABC):
                        prices: Optional[MarketPrices] = None, emergency: bool = False):
         """Close a position at the best available price."""
         try:
+            # Guard: skip if market is no longer open
+            markets = self.trader.get_markets(tickers=[ticker])
+            if markets:
+                status = getattr(markets[0], "status", "active")
+                if status in ("settled", "finalized", "closed"):
+                    logger.warning(f"SKIP CLOSE {ticker}: market status='{status}', removing position")
+                    self.held_positions.pop(ticker, None)
+                    return
+                if status != "active":
+                    logger.warning(f"[Close] {ticker} status='{status}', attempting close anyway")
+            else:
+                logger.warning(f"[Close] {ticker}: get_markets returned empty, attempting close anyway")
+            
             side = position["side"]
 
             if prices is None:
-                markets = self.trader.get_markets(tickers=[ticker])
-                if not markets:
-                    logger.error(f"No market data for {ticker}, using emergency exit")
-                    emergency = True
-                    bid, ask = 0, 0
-                else:
-                    bid, ask = MarketPrices.from_market(markets[0]).for_side(side)
+                bid, ask = MarketPrices.from_market(markets[0]).for_side(side)
             else:
                 bid, ask = prices.for_side(side)
 
@@ -96,7 +132,6 @@ class BaseStrategy(ABC):
 
             if emergency or spread >= 50:
                 order_type, exit_price = "market", None
-                logger.warning(f"MARKET ORDER: {ticker} spread={spread}¢ emergency={emergency}")
             elif bid >= 1:
                 order_type, exit_price = "limit", bid
             else:
@@ -108,16 +143,20 @@ class BaseStrategy(ABC):
                 quantity=position["contracts"],
                 price=exit_price, order_type=order_type,
             )
+            logger.info(
+                f"[Exit] Placed {order_type} close for {ticker} {side.upper()} "
+                f"@ {exit_price}¢ x{position['contracts']}"
+            )
 
             entry = position.get("entry_price")
             if entry and exit_price:
                 pnl     = (exit_price - entry) * position["contracts"] / 100
                 pnl_pct = (exit_price - entry) / entry * 100
-                logger.info(f"CLOSED {position['contracts']} {side} {ticker} @ {exit_price}¢ "
-                            f"(entry={entry}¢ P&L=${pnl:.2f} {pnl_pct:+.1f}%)")
+                trade_logger.info(f"CLOSED {position['contracts']} {side} {ticker} @ {exit_price}¢ "
+                                  f"(entry={entry}¢ P&L=${pnl:.2f} {pnl_pct:+.1f}%)")
             else:
                 label = "MARKET" if order_type == "market" else f"{exit_price}¢"
-                logger.info(f"CLOSED {position['contracts']} {side} {ticker} @ {label}")
+                trade_logger.info(f"CLOSED {position['contracts']} {side} {ticker} @ {label}")
 
             self.held_positions.pop(ticker, None)
 
@@ -133,3 +172,21 @@ class BaseStrategy(ABC):
     @abstractmethod
     def _check_exit_conditions(self, ticker: str, prices: MarketPrices):
         """Called when a held position gets a price update."""
+
+
+def kelly_contracts(order_price: int, edge: float, portfolio: float,
+                    kelly_fraction: float, max_pct: float, available_cash: float) -> int:
+    implied_prob = order_price / 100
+    odds         = max(1 - implied_prob, 0.01)
+    kelly        = edge / odds
+    safe_kelly   = min(kelly * kelly_fraction, max_pct)
+    capital      = portfolio * max(safe_kelly, 0.005)
+
+    price_dollars  = order_price / 100
+    desired        = int(capital / price_dollars)
+    max_affordable = int(available_cash / price_dollars)
+
+    if max_affordable < 1:
+        return 0                          # can't afford even 1 contract — hard stop
+
+    return max(min(desired, max_affordable), 1)   # at least 1, but only if affordable

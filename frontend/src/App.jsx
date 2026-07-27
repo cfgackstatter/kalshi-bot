@@ -4,612 +4,536 @@ import './App.css'
 
 const API = 'http://localhost:8000/api'
 
+// ── Tiny reusable components ──────────────────────────────────────────────────
+
 const FilterBtn = ({ active, onClick, children }) => (
-  <button className={`filter-btn ${active ? 'active' : ''}`} onClick={onClick}>{children}</button>
+  <button className={`filter-btn ${active ? 'active' : ''}`} onClick={onClick}>
+    {children}
+  </button>
 )
 
 const Modal = ({ title, onClose, children }) => (
   <div className="modal-overlay" onClick={onClose}>
-    <div className="modal" onClick={(e) => e.stopPropagation()}>
-      <h3>{title}</h3>
+    <div className="modal" onClick={e => e.stopPropagation()}>
+      <div className="modal-header">
+        <h3>{title}</h3>
+        <button onClick={onClose}>✕</button>
+      </div>
       {children}
     </div>
   </div>
 )
 
-function App() {
-  const [balance, setBalance] = useState(0)
-  const [portfolioValue, setPortfolioValue] = useState(0)
-  const [markets, setMarkets] = useState([])
-  const [orders, setOrders] = useState([])
-  const [positions, setPositions] = useState([])
-  const [loading, setLoading] = useState(false)
-  const [filters, setFilters] = useState({ highProb: false, tightSpread: false, highVolume: false })
-  const [tradeModal, setTradeModal] = useState(null)
-  const [closeModal, setCloseModal] = useState(null)
-  const [tradeSide, setTradeSide] = useState('yes')
-  const [strategyEnabled, setStrategyEnabled] = useState(false)
-  const [showAdvanced, setShowAdvanced] = useState(false)
-  const [strategyConfig, setStrategyConfig] = useState(null)
+// ── Strategy parameter definitions ───────────────────────────────────────────
 
-  useEffect(() => {
-    fetchData()
-    fetchStrategyConfig()
-  }, [])
+const GENERAL_PARAMS = [
+  { key: 'scan_frequency',          label: 'Scan Frequency (min)',   type: 'number', step: 1,   scale: 1    },
+  { key: 'max_pending_age_minutes', label: 'Max Pending Age (min)',  type: 'number', step: 1,   scale: 1    },
+  { key: 'order_at_bid',            label: 'Order at Bid (maker)',   type: 'boolean'                        },
+  { key: 'estimated_edge',          label: 'Estimated Edge %',       type: 'number', step: 0.1, scale: 0.01 },
+  { key: 'kelly_fraction',          label: 'Kelly Fraction %',       type: 'number', step: 1,   scale: 0.01 },
+  { key: 'max_position_pct',        label: 'Max Position %',         type: 'number', step: 1,   scale: 0.01 },
+  { key: 'max_loss_percent',        label: 'Max Loss %',             type: 'number', step: 1,   scale: 0.01 },
+]
 
-  const fetchData = async () => {
-    setLoading(true)
-    try {
-      const [balRes, marketsRes, ordersRes, posRes] = await Promise.all([
-        axios.get(`${API}/balance`),
-        axios.get(`${API}/markets`),
-        axios.get(`${API}/orders`),
-        axios.get(`${API}/positions`)
-      ])
+const STRATEGY_PARAMS = {
+  bonding: [
+    { key: 'min_probability',           label: 'Min Probability (¢)',       type: 'number', step: 1    },
+    { key: 'max_time_to_expiry',        label: 'Max Time to Expiry (hrs)',  type: 'number', step: 0.05 },
+    { key: 'max_spread',                label: 'Max Spread (¢)',            type: 'number', step: 1    },
+    { key: 'min_volume',                label: 'Min Volume',                type: 'number', step: 1    },
+    { key: 'ticker_exclude_substrings', label: 'Exclude Tickers (csv)',     type: 'text'               },
+  ],
+  momentum: [
+    { key: 'momentum_window_minutes', label: 'Momentum Window (min)',  type: 'number', step: 1   },
+    { key: 'min_slope_cents_per_min', label: 'Min Slope ¢/min',        type: 'number', step: 0.5 },
+    { key: 'momentum_tstat_threshold', label: 'Momentum t-stat',       type: 'number', step: 0.1 },
+    { key: 'min_upside_cents',        label: 'Min Upside (¢)',         type: 'number', step: 1   },
+    { key: 'min_upside_ratio',        label: 'Min Upside Ratio (%)',   type: 'number', step: 1, scale: 0.01 },
+    { key: 'take_profit_cents',       label: 'Take Profit (¢)',        type: 'number', step: 1   },
+    { key: 'stop_loss_cents',         label: 'Stop Loss (¢)',          type: 'number', step: 1   },
+    { key: 'max_hold_minutes',        label: 'Max Hold (min)',         type: 'number', step: 5   },
+    { key: 'min_time_to_expiry',      label: 'Min Time to Expiry (hr)',type: 'number', step: 0.25},
+    { key: 'max_time_to_expiry',      label: 'Max Time to Expiry (hr)',type: 'number', step: 0.25},
+    { key: 'max_spread',              label: 'Max Spread (¢)',         type: 'number', step: 1   },
+    { key: 'min_volume',              label: 'Min Volume',             type: 'number', step: 10  },
+    { key: 'ticker_exclude_substrings', label: 'Exclude Tickers (csv)', type: 'text'             },
+    { key: 'min_contract_price_cents', label: 'Min Contract Price ¢',  type: 'number', step: 1   },
+  ],
+}
 
-      const balData = balRes.data
-      const cash = balData.balance                    // Cash
-      const positionsVal = balData.portfolio_value    // Positions value
-      const totalPortfolio = cash + positionsVal      // TOTAL
+// ── ParamField: single editable config row ────────────────────────────────────
 
-      setBalance(cash)
-      setPortfolioValue(totalPortfolio)  // Store TOTAL
-      setMarkets(marketsRes.data.markets)
-      setOrders(ordersRes.data.orders)
-      setPositions(posRes.data.positions)
-    } catch (err) {
-      alert('Error: ' + err.message)
-    } finally {
-      setLoading(false)
-    }
+const ParamField = ({ def, value, onChange }) => {
+  // Display value: divide stored value by scale (0.25 → 25 for display)
+  const displayVal = (def.type === 'number' && def.scale)
+    ? (value ?? 0) / def.scale
+    : String(value ?? '')
+
+  const handleChange = (e) => {
+    const raw = def.type === 'number' ? parseFloat(e.target.value) : e.target.value
+    // Store value: multiply by scale (25 → 0.25 for storage)
+    const stored = (def.type === 'number' && def.scale) ? raw * def.scale : raw
+    onChange(def.key, stored)
   }
 
-  const fetchStrategyConfig = async () => {
-    try {
-      const res = await axios.get(`${API}/strategy/config`)
-      setStrategyConfig(res.data)
-      setStrategyEnabled(res.data.enabled || false)
-    } catch (err) {
-      console.error('Failed to load strategy config:', err)
-      alert('Failed to load strategy configuration')
-    }
-  }
-
-  const updateStrategyConfig = async (newConfig) => {
-    try {
-      await axios.put(`${API}/strategy/config`, newConfig)
-    } catch (err) {
-      console.error('Failed to update config')
-    }
-  }
-
-  const handleConfigChange = async (key, value) => {
-    if (!strategyConfig) return
-    const newConfig = { ...strategyConfig, [key]: value }
-    setStrategyConfig(newConfig)
-    await updateStrategyConfig(newConfig)
-  }
-
-  const toggleStrategy = async () => {
-    try {
-      if (strategyEnabled) {
-        await axios.post(`${API}/strategy/stop`)
-      } else {
-        await axios.post(`${API}/strategy/start`)
-      }
-      setStrategyEnabled(!strategyEnabled)
-    } catch (err) {
-      alert('Error: ' + err.message)
-    }
-  }
-
-  const filteredMarkets = markets.filter(m => {
-    const yes_mid = (m.yes_bid + m.yes_ask) / 2
-    const no_mid = (m.no_bid + m.no_ask) / 2
-    const spread = m.yes_ask - m.yes_bid
-    return (
-      (!filters.highProb || (yes_mid >= 96 || no_mid >= 96)) &&
-      (!filters.tightSpread || spread <= 2) &&
-      (!filters.highVolume || m.volume >= 10000)
-    )
-  })
-
-  const cancelOrder = async (orderId) => {
-    if (!confirm('Cancel this order?')) return
-    try {
-      await axios.post(`${API}/cancel`, { order_id: orderId })
-      fetchData()
-    } catch (err) {
-      alert('Error: ' + err.message)
-    }
-  }
-
-  const submitTrade = async (e, ticker) => {
-    e.preventDefault()
-    const fd = new FormData(e.target)
-    try {
-      await axios.post(`${API}/trade`, {
-        ticker,
-        side: fd.get('side'),
-        quantity: parseInt(fd.get('quantity')),
-        price: parseInt(fd.get('price'))
-      })
-      setTradeModal(null)
-      fetchData()
-    } catch (err) {
-      alert('Error: ' + err.message)
-    }
-  }
-
-  const submitClose = async (e, ticker) => {
-    e.preventDefault()
-    const fd = new FormData(e.target)
-    try {
-      await axios.post(`${API}/close`, {
-        ticker,
-        side: fd.get('side'),
-        quantity: parseInt(fd.get('quantity')),
-        price: parseInt(fd.get('price'))
-      })
-      setCloseModal(null)
-      fetchData()
-    } catch (err) {
-      alert('Error: ' + err.message)
-    }
-  }
-
-  const posVal = portfolioValue - balance
-  const portVal = portfolioValue
+  if (def.type === 'boolean') return (
+    <div className="param-row">
+      <label>{def.label}</label>
+      <input type="checkbox" checked={!!value}
+        onChange={e => onChange(def.key, e.target.checked)} />
+    </div>
+  )
 
   return (
-    <div className="container">
-      <div className="header">
-        <div>
-          <h1>Kalshi Trading</h1>
-          <div className="stats">
-            <span>Cash: ${balance.toFixed(2)}</span>
-            <span>Positions: ${posVal.toFixed(2)}</span>
-            <span>Total: ${portVal.toFixed(2)}</span>
-          </div>
-        </div>
-        <button onClick={fetchData} disabled={loading} className="btn-primary">
-          {loading ? 'Loading...' : 'Refresh'}
+    <div className="param-row">
+      <label>{def.label}</label>
+      <input
+        type={def.type}
+        {...(def.type === 'number' ? { step: def.step } : {})}
+        value={displayVal}
+        onChange={handleChange}
+      />
+    </div>
+  )
+}
+
+// ── StrategyPanel: selector + collapsible params ──────────────────────────────
+
+const StrategyPanel = ({ running, configs, activeStrategy, onStrategyChange, onConfigChange, onStart, onStop }) => {
+  const [open, setOpen] = useState(false)
+  const config = configs[activeStrategy]
+
+  return (
+    <div className="strategy-panel">
+
+      {/* Top bar: selector + status + start/stop */}
+      <div className="strategy-bar">
+        <span className="strategy-label">Strategy</span>
+
+        <select
+          value={activeStrategy}
+          disabled={running}
+          onChange={e => onStrategyChange(e.target.value)}
+        >
+          <option value="bonding">Bonding</option>
+          <option value="momentum">Momentum</option>
+        </select>
+
+        <span className={`status-dot ${running ? 'running' : 'stopped'}`}>
+          {running ? '● Running' : '○ Stopped'}
+        </span>
+
+        {running
+          ? <button className="btn-danger"  onClick={onStop}>Stop</button>
+          : <button className="btn-success" onClick={onStart}>Start</button>
+        }
+
+        <button className="btn-secondary" onClick={() => setOpen(o => !o)}>
+          {open ? '▲ Hide Params' : '▼ Show Params'}
         </button>
       </div>
 
-      <section className="strategy-panel-improved">
-        <div className="strategy-header">
-          <div className="strategy-title">
-            <h2>High Probability Strategy</h2>
-            <div className="status-indicator">
-              <span className={`status-dot ${strategyEnabled ? 'running' : 'stopped'}`}></span>
-              <span className="status-text">{strategyEnabled ? 'Running' : 'Stopped'}</span>
-            </div>
+      {/* Collapsible params */}
+      {open && (
+        <div className="params-grid">
+
+          <div className="params-section">
+            <h4>General</h4>
+            {GENERAL_PARAMS.map(def => (
+              <ParamField key={def.key} def={def} value={config[def.key]}
+                onChange={(k, v) => onConfigChange(activeStrategy, k, v)} />
+            ))}
           </div>
-          <button
-            className={`btn-toggle ${strategyEnabled ? 'active' : ''}`}
-            onClick={toggleStrategy}
-          >
-            {strategyEnabled ? 'Stop' : 'Start'}
-          </button>
+
+          <div className="params-section">
+            <h4>{activeStrategy.charAt(0).toUpperCase() + activeStrategy.slice(1)}</h4>
+            {STRATEGY_PARAMS[activeStrategy].map(def => (
+              <ParamField key={def.key} def={def} value={config[def.key]}
+                onChange={(k, v) => onConfigChange(activeStrategy, k, v)} />
+            ))}
+          </div>
+
         </div>
+      )}
+    </div>
+  )
+}
 
-        {!strategyConfig ? (
-          <div>Loading configuration...</div>
-        ) : (
-          <div className="strategy-config-grid">
-            {/* FIRST COLUMN: Kelly Sizing */}
-            <div className="config-card">
-              <h3 className="card-title">Kelly Sizing</h3>
+// ── Main App ──────────────────────────────────────────────────────────────────
 
-              <div className="param-item">
-                <div className="param-label-row">
-                  <label>Estimated Edge</label>
-                  <span className="param-value">{(strategyConfig.estimated_edge * 100).toFixed(2)}%</span>
-                </div>
-                <input
-                  type="range"
-                  min="0.5"
-                  max="10"
-                  step="0.5"
-                  value={strategyConfig.estimated_edge * 100}
-                  onChange={(e) => handleConfigChange('estimated_edge', parseFloat(e.target.value) / 100)}
-                />
-                <div className="param-hint">Your expected probability advantage</div>
-              </div>
+export default function App() {
+  // Strategy state
+  const [activeStrategy, setActiveStrategy] = useState('bonding')
+  const [configs, setConfigs]               = useState({ bonding: null, momentum: null })
+  const [running, setRunning]               = useState(false)
 
-              <div className="param-item">
-                <div className="param-label-row">
-                  <label>Kelly Fraction</label>
-                  <span className="param-value">{(strategyConfig.kelly_fraction * 100).toFixed(0)}%</span>
-                </div>
-                <input
-                  type="range"
-                  min="10"
-                  max="100"
-                  step="5"
-                  value={strategyConfig.kelly_fraction * 100}
-                  onChange={(e) => handleConfigChange('kelly_fraction', parseFloat(e.target.value) / 100)}
-                />
-                <div className="param-hint">25% = Quarter Kelly (conservative)</div>
-              </div>
+  // Data state
+  const [balance, setBalance]     = useState(null)
+  const [markets, setMarkets]     = useState([])
+  const [orders, setOrders]       = useState([])
+  const [positions, setPositions] = useState([])
 
-              <div className="param-item">
-                <div className="param-label-row">
-                  <label>Max Position Size</label>
-                  <span className="param-value">{(strategyConfig.max_position_pct * 100).toFixed(1)}%</span>
-                </div>
-                <input
-                  type="range"
-                  min="1"
-                  max="20"
-                  step="0.5"
-                  value={strategyConfig.max_position_pct * 100}
-                  onChange={(e) => handleConfigChange('max_position_pct', parseFloat(e.target.value) / 100)}
-                />
-                <div className="param-hint">Max ${(portVal * strategyConfig.max_position_pct).toFixed(2)} per position</div>
-              </div>
-            </div>
+  // UI state
+  const [activeTab, setActiveTab]   = useState('markets')
+  const [marketFilter, setMarketFilter] = useState('all')
+  const [tradeModal, setTradeModal] = useState(null)
+  const [closeModal, setCloseModal] = useState(null)
 
-            {/* SECOND COLUMN: Entry Filters */}
-            <div className="config-card">
-              <h3 className="card-title">Entry Filters</h3>
+  // ── Data fetching ───────────────────────────────────────────────────────────
 
-              <div className="param-item">
-                <div className="param-label-row">
-                  <label>Min Probability</label>
-                  <span className="param-value">{strategyConfig.min_probability}¢</span>
-                </div>
-                <input
-                  type="number"
-                  min="50"
-                  max="99"
-                  value={strategyConfig.min_probability}
-                  onChange={(e) => handleConfigChange('min_probability', parseInt(e.target.value))}
-                />
-              </div>
+  const fetchAll = async () => {
+    try {
+      const [bal, mkt, ord, pos] = await Promise.all([
+        axios.get(`${API}/balance`),
+        axios.get(`${API}/markets`),
+        axios.get(`${API}/orders`),
+        axios.get(`${API}/positions`),
+      ])
+      setBalance(bal.data)
+      setMarkets(mkt.data.markets || [])
+      setOrders(ord.data.orders || [])
+      setPositions(pos.data.positions || [])
+    } catch (e) {
+      console.error('Fetch error:', e)
+    }
+  }
 
-              <div className="param-item">
-                <div className="param-label-row">
-                  <label>Max Spread</label>
-                  <span className="param-value">{strategyConfig.max_spread}¢</span>
-                </div>
-                <input
-                  type="number"
-                  min="1"
-                  max="10"
-                  value={strategyConfig.max_spread}
-                  onChange={(e) => handleConfigChange('max_spread', parseInt(e.target.value))}
-                />
-              </div>
+  useEffect(() => {
+    Promise.all([
+      axios.get(`${API}/strategy/config`),
+      axios.get(`${API}/strategy/defaults/bonding`),
+      axios.get(`${API}/strategy/defaults/momentum`),
+    ]).then(([cfg, bond, mom]) => {
+      const active = cfg.data.strategy_type || 'bonding'
+      setActiveStrategy(active)
+      setRunning(cfg.data.enabled || false)
+      setConfigs({
+        bonding:  active === 'bonding'  ? cfg.data : bond.data,
+        momentum: active === 'momentum' ? cfg.data : mom.data,
+      })
+    }).catch(e => console.error('Init error:', e))
 
-              <div className="param-item">
-                <div className="param-label-row">
-                  <label>Min Volume</label>
-                  <span className="param-value">{strategyConfig.min_volume.toLocaleString()}</span>
-                </div>
-                <input
-                  type="number"
-                  min="0"
-                  max="100000"
-                  step="1000"
-                  value={strategyConfig.min_volume}
-                  onChange={(e) => handleConfigChange('min_volume', parseInt(e.target.value))}
-                />
-              </div>
+    fetchAll()
+    const interval = setInterval(fetchAll, 30000)
+    return () => clearInterval(interval)
+  }, [])
 
-              <div className="param-item">
-                <div className="param-label-row">
-                  <label>Max Time to Expiry</label>
-                  <span className="param-value">
-                    {strategyConfig.max_time_to_expiry >= 1 
-                      ? `${strategyConfig.max_time_to_expiry}h`
-                      : `${(strategyConfig.max_time_to_expiry * 60).toFixed(0)}m`
-                    }
-                  </span>
-                </div>
-                <input
-                  type="number"
-                  min="0.1"
-                  max="168"
-                  step="0.1"
-                  value={strategyConfig.max_time_to_expiry}
-                  onChange={(e) => handleConfigChange('max_time_to_expiry', parseFloat(e.target.value))}
-                />
-              </div>
-            </div>
+  // ── Strategy controls ───────────────────────────────────────────────────────
 
-            {/* THIRD COLUMN: Risk & Execution */}
-            <div className="config-card">
-              <h3 className="card-title">Risk & Execution</h3>
+  const handleStrategyChange = (type) => {
+    setActiveStrategy(type)
+    // Don't send to backend yet — user must click Start
+  }
 
-              <div className="param-item">
-                <div className="param-label-row">
-                  <label>Max Loss Per Position</label>
-                  <span className="param-value">{(strategyConfig.max_loss_percent * 100).toFixed(0)}%</span>
-                </div>
-                <input
-                  type="range"
-                  min="10"
-                  max="50"
-                  step="5"
-                  value={strategyConfig.max_loss_percent * 100}
-                  onChange={(e) => handleConfigChange('max_loss_percent', parseFloat(e.target.value) / 100)}
-                />
-                <div className="param-hint">Stop-loss from entry price</div>
-              </div>
+  const handleConfigChange = (strategyType, key, value) => {
+    const updatedConfig = { ...configs[strategyType], [key]: value }
+    setConfigs(prev => ({ ...prev, [strategyType]: updatedConfig }))
+    if (running) {
+      // Never send enabled or strategy_type — those are controlled by start/stop only
+      const { enabled, strategy_type, ...safeConfig } = updatedConfig
+      axios.put(`${API}/strategy/config`, safeConfig)
+    }
+  }
 
-              <div className="param-item">
-                <div className="param-label-row">
-                  <label>Order at Bid (Maker)</label>
-                  <span className="param-value">{strategyConfig.order_at_bid ? 'Yes' : 'No'}</span>
-                </div>
-                <label className="toggle-switch">
-                  <input
-                    type="checkbox"
-                    checked={strategyConfig.order_at_bid}
-                    onChange={(e) => handleConfigChange('order_at_bid', e.target.checked)}
-                  />
-                  <span className="toggle-slider"></span>
-                </label>
-                <div className="param-hint">{strategyConfig.order_at_bid ? 'Slower fills, better price' : 'Faster fills at bid+1'}</div>
-              </div>
+  const handleStart = async () => {
+    try {
+        // Only send the strategy params — /start endpoint sets enabled=True itself
+        const { enabled, ...paramsOnly } = configs[activeStrategy]
+        const configToSend = { ...paramsOnly, strategy_type: activeStrategy }
+        await axios.put(`${API}/strategy/config`, configToSend)
+        await axios.post(`${API}/strategy/start`)
+        setRunning(true)
+    } catch (e) {
+        console.error('Start error', e)
+    }
+  }
 
-              <div className="param-item">
-                <label>Scan Every:</label>
-                <div className="button-group">
-                  {[1, 5, 10, 15, 30, 45, 60].map(min => (
-                    <button
-                      key={min}
-                      className={`freq-btn ${strategyConfig.scan_frequency === min ? 'active' : ''}`}
-                      onClick={() => handleConfigChange('scan_frequency', min)}
-                    >
-                      {min}min
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
+  const handleStop = async () => {
+    try {
+      await axios.post(`${API}/strategy/stop`)
+      setRunning(false)
+    } catch (e) {
+      console.error('Stop error:', e)
+    }
+  }
+
+  // ── Trade / close actions ───────────────────────────────────────────────────
+
+  const executeTrade = async (ticker, side, quantity, price) => {
+    await axios.post(`${API}/trade`, { ticker, side, quantity: parseInt(quantity), price: parseInt(price) })
+    fetchAll()
+  }
+
+  const closePosition = async (ticker, side, quantity, price) => {
+    await axios.post(`${API}/close`, { ticker, side, quantity: parseInt(quantity), price: parseInt(price) })
+    fetchAll()
+  }
+
+  const cancelOrder = async (orderId) => {
+    await axios.post(`${API}/cancel`, { order_id: orderId })
+    fetchAll()
+  }
+
+  // ── Filtered markets ────────────────────────────────────────────────────────
+
+  const filteredMarkets = markets.filter(m => {
+    if (marketFilter === 'all')  return true
+    if (marketFilter === 'high') return Math.max(m.yes_bid, m.no_bid) >= 90
+    if (marketFilter === 'soon') return m.total_seconds_left < 15 * 60
+    if (marketFilter === 'volume') return m.volume >= 1000
+    return true
+  })
+
+  // ── Render ──────────────────────────────────────────────────────────────────
+
+  return (
+    <div className="app">
+
+      {/* Header */}
+      <div className="header">
+        <h1>Kalshi Trader</h1>
+        {balance && (
+          <div className="balance">
+            <span>Cash: <strong>${balance.balance?.toFixed(2)}</strong></span>
+            <span>Portfolio: <strong>${balance.portfolio_value?.toFixed(2)}</strong></span>
+            <span>Total: <strong>${((balance.balance || 0) + (balance.portfolio_value || 0)).toFixed(2)}</strong></span>
           </div>
         )}
+      </div>
 
-        {/* Advanced Settings - Collapsible */}
-        <div className="advanced-section">
-          <button 
-            className="advanced-toggle"
-            onClick={() => setShowAdvanced(!showAdvanced)}
-          >
-            {showAdvanced ? '▼' : '▶'} Advanced Settings
-          </button>
-          
-          {showAdvanced && (
-            <div className="advanced-content">
-              <div className="advanced-grid-custom">
-                <div className="param-item-compact short">
-                  <label>Order Max Age (min)</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="60"
-                    value={strategyConfig.max_pending_age_minutes}
-                    onChange={(e) => handleConfigChange('max_pending_age_minutes', parseInt(e.target.value))}
-                  />
-                </div>
-                
-                <div className="param-item-compact long">
-                  <label>Exclude Tickers</label>
-                  <input
-                    type="text"
-                    value={strategyConfig.ticker_exclude_substrings}
-                    onChange={(e) => handleConfigChange('ticker_exclude_substrings', e.target.value)}
-                    placeholder="MENTION-,SAY-,NETFLIX,ALBUM"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </section>
+      {/* Strategy Panel */}
+      <StrategyPanel
+        running={running}
+        configs={configs}
+        activeStrategy={activeStrategy}
+        onStrategyChange={handleStrategyChange}
+        onConfigChange={handleConfigChange}
+        onStart={handleStart}
+        onStop={handleStop}
+      />
 
-      <section>
-        <div className="section-header">
-          <h2>Markets expiring within 1h ({filteredMarkets.length})</h2>
-          <div className="filters">
-            <FilterBtn active={filters.highProb} onClick={() => setFilters({...filters, highProb: !filters.highProb})}>
-              High Prob ≥96¢
-            </FilterBtn>
-            <FilterBtn active={filters.tightSpread} onClick={() => setFilters({...filters, tightSpread: !filters.tightSpread})}>
-              Tight Spread ≤2¢
-            </FilterBtn>
-            <FilterBtn active={filters.highVolume} onClick={() => setFilters({...filters, highVolume: !filters.highVolume})}>
-              Volume ≥10k
-            </FilterBtn>
+      {/* Tabs */}
+      <div className="tabs">
+        {['markets', 'orders', 'positions'].map(tab => (
+          <FilterBtn key={tab} active={activeTab === tab} onClick={() => setActiveTab(tab)}>
+            {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            <span className="tab-count">
+              {tab === 'markets'   ? filteredMarkets.length
+             : tab === 'orders'   ? orders.length
+             : positions.length}
+            </span>
+          </FilterBtn>
+        ))}
+      </div>
+
+      {/* Markets Tab */}
+      {activeTab === 'markets' && (
+        <div className="tab-content">
+          <div className="filter-bar">
+            {[
+              ['all',    'All'],
+              ['high',   'High Prob (>90¢)'],
+              ['soon',   'Expiring <15min'],
+              ['volume', 'High Volume'],
+            ].map(([val, label]) => (
+              <FilterBtn key={val} active={marketFilter === val} onClick={() => setMarketFilter(val)}>
+                {label}
+              </FilterBtn>
+            ))}
           </div>
-        </div>
-        <div className="table-container-scrollable">
-          <table>
-            <thead>
-              <tr>
-                <th>Ticker</th>
-                <th>Title</th>
-                <th>Subtitle</th>
-                <th>Yes Sub</th>
-                <th>No Sub</th>
-                <th>Yes Bid</th>
-                <th>Yes Ask</th>
-                <th>No Bid</th>
-                <th>No Ask</th>
-                <th>Volume</th>
-                <th>Time</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredMarkets.length === 0 && <tr><td colSpan="12">No markets</td></tr>}
-              {filteredMarkets.map(m => (
-                <tr key={m.ticker}>
-                  <td>{m.ticker}</td>
-                  <td>{m.title}</td>
-                  <td>{m.subtitle || '-'}</td>
-                  <td>{m.yes_sub_title || '-'}</td>
-                  <td>{m.no_sub_title || '-'}</td>
-                  <td>{m.yes_bid}¢</td>
-                  <td>{m.yes_ask}¢</td>
-                  <td>{m.no_bid}¢</td>
-                  <td>{m.no_ask}¢</td>
-                  <td>{m.volume.toLocaleString()}</td>
-                  <td>{m.days_left > 0 ? `${m.days_left}d ${m.hours_left}h` : `${m.hours_left}h ${m.minutes_left}m`}</td>
-                  <td><button className="btn-sm btn-success" onClick={() => { setTradeSide('yes'); setTradeModal(m); }}>Trade</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {orders.length > 0 && (
-        <section>
-          <h2>Pending Orders ({orders.length})</h2>
-          <div className="table-container">
+          <div className="table-scroll">
             <table>
-              <thead>
-                <tr>
-                  <th>Ticker</th>
-                  <th>Side</th>
-                  <th>Action</th>
-                  <th>Price</th>
-                  <th>Remaining</th>
-                  <th>Created</th>
-                  <th></th>
-                </tr>
-              </thead>
+              <thead><tr>
+                <th>Ticker</th><th>Title</th><th>Subtitle</th>
+                <th>Yes Sub</th><th>No Sub</th>
+                <th>Yes Bid</th><th>Yes Ask</th><th>No Bid</th><th>No Ask</th>
+                <th>Volume</th><th>Time</th><th>Action</th>
+              </tr></thead>
               <tbody>
-                {orders.map(o => (
-                  <tr key={o.order_id}>
-                    <td>{o.ticker}</td>
-                    <td className="uppercase">{o.side}</td>
-                    <td className="capitalize">{o.action}</td>
-                    <td>{o.price}¢</td>
-                    <td>{o.remaining_count}/{o.initial_count}</td>
-                    <td>{new Date(o.created_time).toLocaleString()}</td>
-                    <td><button className="btn-sm btn-danger" onClick={() => cancelOrder(o.order_id)}>Cancel</button></td>
-                  </tr>
-                ))}
+                {filteredMarkets.length === 0
+                  ? <tr><td colSpan={12}>No markets</td></tr>
+                  : filteredMarkets.map(m => (
+                    <tr key={m.ticker} onClick={() => setTradeModal(m)} className="clickable">
+                      <td>{m.ticker}</td>
+                      <td>{m.title}</td>
+                      <td>{m.subtitle || '-'}</td>
+                      <td>{m.yes_sub_title || '-'}</td>
+                      <td>{m.no_sub_title || '-'}</td>
+                      <td>{m.yes_bid}¢</td><td>{m.yes_ask}¢</td>
+                      <td>{m.no_bid}¢</td><td>{m.no_ask}¢</td>
+                      <td>{m.volume.toLocaleString()}</td>
+                      <td>{m.days_left > 0 ? `${m.days_left}d ${m.hours_left}h` : `${m.hours_left}h ${m.minutes_left}m`}</td>
+                      <td><button className="btn-small" onClick={e => { e.stopPropagation(); setTradeModal(m) }}>Trade</button></td>
+                    </tr>
+                  ))}
               </tbody>
             </table>
           </div>
-        </section>
+        </div>
       )}
 
-      <section>
-        <h2>Open Positions ({positions.length})</h2>
-        <div className="table-container">
+      {/* Orders Tab */}
+      {activeTab === 'orders' && (
+        <div className="tab-content">
           <table>
-            <thead>
-              <tr>
-                <th>Ticker</th>
-                <th>Side</th>
-                <th>Bid</th>
-                <th>Contracts</th>
-                <th>Avg Price</th>
-                <th>Cost</th>
-                <th>Payout If Right</th>
-                <th>Market Value</th>
-                <th>Return</th>
-                <th>Time</th>
-                <th></th>
-              </tr>
-            </thead>
+            <thead><tr>
+              <th>Ticker</th><th>Side</th><th>Action</th>
+              <th>Price</th><th>Remaining</th><th>Created</th><th>Action</th>
+            </tr></thead>
             <tbody>
-              {positions.length === 0 && <tr><td colSpan="11">No positions</td></tr>}
-              {positions.map(p => {
-                const retPct = (p.unrealized_return / p.cost) * 100
-                const payoutPct = ((p.payout_if_right / p.cost - 1) * 100).toFixed(0)
-                const timeStr = p.days_left > 0 ? `${p.days_left}d ${p.hours_left}h` : `${p.hours_left}h ${p.minutes_left}m`
-                return (
-                  <tr key={p.ticker}>
-                    <td>{p.ticker}</td>
-                    <td className="uppercase">{p.side}</td>
-                    <td>{p.current_bid}¢</td>
-                    <td>{p.contracts}</td>
-                    <td>${p.avg_price.toFixed(4).replace(/\.?0+$/, '')}</td>
-                    <td>${p.cost.toFixed(4).replace(/\.?0+$/, '')}</td>
-                    <td>${p.payout_if_right.toFixed(2)} ({payoutPct}%)</td>
-                    <td>${p.market_value.toFixed(2)}</td>
-                    <td className={retPct >= 0 ? 'positive' : 'negative'}>
-                      ${p.unrealized_return.toFixed(2)} ({retPct >= 0 ? '+' : ''}{retPct.toFixed(1)}%)
-                    </td>
-                    <td>{timeStr}</td>
-                    <td><button className="btn-sm btn-warning" onClick={() => setCloseModal(p)}>Close</button></td>
+              {orders.length === 0
+                ? <tr><td colSpan={7}>No orders</td></tr>
+                : orders.map(o => (
+                  <tr key={o.order_id}>
+                    <td>{o.ticker}</td>
+                    <td>{o.side}</td>
+                    <td>{o.action}</td>
+                    <td>{o.price}¢</td>
+                    <td>{o.remaining_count}/{o.initial_count}</td>
+                    <td>{new Date(o.created_time).toLocaleString()}</td>
+                    <td><button className="btn-small btn-danger" onClick={() => cancelOrder(o.order_id)}>Cancel</button></td>
                   </tr>
-                )
-              })}
+                ))}
             </tbody>
           </table>
         </div>
-      </section>
+      )}
 
+      {/* Positions Tab */}
+      {activeTab === 'positions' && (
+        <div className="tab-content">
+          <table>
+            <thead><tr>
+              <th>Ticker</th><th>Side</th><th>Bid</th><th>Contracts</th>
+              <th>Avg Price</th><th>Cost</th><th>Payout If Right</th>
+              <th>Market Value</th><th>Return</th><th>Time</th><th>Action</th>
+            </tr></thead>
+            <tbody>
+              {positions.length === 0
+                ? <tr><td colSpan={11}>No positions</td></tr>
+                : positions.map(p => {
+                  const payoutPct = ((p.payout_if_right / p.cost - 1) * 100).toFixed(1)
+                  const retPct    = p.cost > 0 ? (p.unrealized_return / p.cost * 100) : 0
+                  const timeStr   = p.days_left > 0
+                    ? `${p.days_left}d ${p.hours_left}h`
+                    : `${p.hours_left}h ${p.minutes_left}m`
+                  return (
+                    <tr key={p.ticker}>
+                      <td>{p.ticker}</td>
+                      <td>{p.side}</td>
+                      <td>{p.current_bid}¢</td>
+                      <td>{p.contracts}</td>
+                      <td>${p.avg_price.toFixed(4).replace(/\.?0+$/, '')}</td>
+                      <td>${p.cost.toFixed(4).replace(/\.?0+$/, '')}</td>
+                      <td>${p.payout_if_right.toFixed(2)} ({payoutPct}%)</td>
+                      <td>${p.market_value.toFixed(2)}</td>
+                      <td className={p.unrealized_return >= 0 ? 'positive' : 'negative'}>
+                        ${p.unrealized_return.toFixed(2)} ({retPct >= 0 ? '+' : ''}{retPct.toFixed(1)}%)
+                      </td>
+                      <td>{timeStr}</td>
+                      <td><button className="btn-small btn-danger" onClick={() => setCloseModal(p)}>Close</button></td>
+                    </tr>
+                  )
+                })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Trade Modal */}
       {tradeModal && (
-        <Modal title={`Trade: ${tradeModal.ticker}`} onClose={() => setTradeModal(null)}>
-          <p className="subtitle">{tradeModal.title}</p>
-          <form onSubmit={(e) => submitTrade(e, tradeModal.ticker)}>
-            <label>Side
-              <select 
-                name="side" 
-                required 
-                value={tradeSide} 
-                onChange={(e) => setTradeSide(e.target.value)}
-              >
-                <option value="yes">Yes</option>
-                <option value="no">No</option>
-              </select>
-            </label>
-            <label>Quantity<input type="number" name="quantity" min="1" required /></label>
-            <label>Price (¢)
-              <input 
-                type="number" 
-                name="price" 
-                min="1" 
-                max="99" 
-                key={tradeSide} 
-                defaultValue={tradeSide === 'yes' ? tradeModal.yes_ask : tradeModal.no_ask} 
-                required 
-              />
-            </label>
-            <div className="btn-group">
-              <button type="submit" className="btn-primary">Submit</button>
-              <button type="button" className="btn-secondary" onClick={() => setTradeModal(null)}>Cancel</button>
-            </div>
-          </form>
+        <Modal title={tradeModal.title} onClose={() => setTradeModal(null)}>
+          <TradeForm market={tradeModal} onSubmit={executeTrade} onClose={() => setTradeModal(null)} />
         </Modal>
       )}
 
+      {/* Close Position Modal */}
       {closeModal && (
         <Modal title={`Close: ${closeModal.ticker}`} onClose={() => setCloseModal(null)}>
-          <p className="subtitle">
-            {closeModal.contracts} {closeModal.side.toUpperCase()} contracts @ {closeModal.avg_price.toFixed(2)}¢ | 
+          <p>{closeModal.contracts} {closeModal.side.toUpperCase()} contracts
+            @ ${closeModal.avg_price.toFixed(4).replace(/\.?0+$/, '')} avg |
             Current Bid: {closeModal.current_bid}¢
           </p>
-          <form onSubmit={(e) => submitClose(e, closeModal.ticker)}>
-            <label>Side
-              <input type="text" value={closeModal.side.toUpperCase()} disabled style={{background: '#f3f4f6', cursor: 'not-allowed'}} />
-              <input type="hidden" name="side" value={closeModal.side} />
-            </label>
-            <label>Quantity
-              <input type="number" name="quantity" min="1" max={closeModal.contracts} defaultValue={closeModal.contracts} required />
-            </label>
-            <label>Price (¢)
-              <input type="number" name="price" min="1" max="99" defaultValue={closeModal.current_bid} required />
-            </label>
-            <div className="btn-group">
-              <button type="submit" className="btn-primary">Submit</button>
-              <button type="button" className="btn-secondary" onClick={() => setCloseModal(null)}>Cancel</button>
-            </div>
-          </form>
+          <CloseForm position={closeModal} onSubmit={closePosition} onClose={() => setCloseModal(null)} />
         </Modal>
       )}
     </div>
   )
 }
 
-export default App
+// ── TradeForm ─────────────────────────────────────────────────────────────────
+
+function TradeForm({ market, onSubmit, onClose }) {
+  const [side, setSide]         = useState('yes')
+  const [quantity, setQuantity] = useState(1)
+  const [price, setPrice]       = useState(market.yes_bid)
+
+  const handleSideChange = (s) => {
+    setSide(s)
+    setPrice(s === 'yes' ? market.yes_bid : market.no_bid)
+  }
+
+  return (
+    <div className="trade-form">
+      <div className="form-row">
+        <label>Side</label>
+        <div>
+          <FilterBtn active={side === 'yes'} onClick={() => handleSideChange('yes')}>YES ({market.yes_bid}¢)</FilterBtn>
+          <FilterBtn active={side === 'no'}  onClick={() => handleSideChange('no')}>NO ({market.no_bid}¢)</FilterBtn>
+        </div>
+      </div>
+      <div className="form-row">
+        <label>Quantity</label>
+        <input type="number" min={1} value={quantity} onChange={e => setQuantity(e.target.value)} />
+      </div>
+      <div className="form-row">
+        <label>Price (¢)</label>
+        <input type="number" min={1} max={99} value={price} onChange={e => setPrice(e.target.value)} />
+      </div>
+      <div className="form-row">
+        <label>Est. Cost</label>
+        <span>${(quantity * price / 100).toFixed(2)}</span>
+      </div>
+      <div className="modal-actions">
+        <button className="btn-success" onClick={() => { onSubmit(market.ticker, side, quantity, price); onClose() }}>
+          Buy {side.toUpperCase()}
+        </button>
+        <button onClick={onClose}>Cancel</button>
+      </div>
+    </div>
+  )
+}
+
+// ── CloseForm ─────────────────────────────────────────────────────────────────
+
+function CloseForm({ position, onSubmit, onClose }) {
+  const [quantity, setQuantity] = useState(position.contracts)
+  const [price, setPrice]       = useState(position.current_bid)
+
+  return (
+    <div className="trade-form">
+      <div className="form-row">
+        <label>Quantity</label>
+        <input type="number" min={1} max={position.contracts} value={quantity}
+          onChange={e => setQuantity(e.target.value)} />
+      </div>
+      <div className="form-row">
+        <label>Price (¢)</label>
+        <input type="number" min={1} max={99} value={price}
+          onChange={e => setPrice(e.target.value)} />
+      </div>
+      <div className="form-row">
+        <label>Est. Proceeds</label>
+        <span>${(quantity * price / 100).toFixed(2)}</span>
+      </div>
+      <div className="modal-actions">
+        <button className="btn-danger"
+          onClick={() => { onSubmit(position.ticker, position.side, quantity, price); onClose() }}>
+          Close {position.side.toUpperCase()}
+        </button>
+        <button onClick={onClose}>Cancel</button>
+      </div>
+    </div>
+  )
+}

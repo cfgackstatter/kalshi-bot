@@ -1,27 +1,10 @@
 from datetime import datetime, timezone, timedelta
-from base_strategy import BaseStrategy
+from strategies.base_strategy import BaseStrategy, kelly_contracts
 from market_utils import MarketPrices, is_illiquid, is_profitable, kalshi_fee
 import logging
 
 logger = logging.getLogger(__name__)
-
-
-def kelly_contracts(order_price: int, edge: float, portfolio: float,
-                    kelly_fraction: float, max_pct: float, available_cash: float) -> int:
-    implied_prob = order_price / 100
-    odds         = max(1 - implied_prob, 0.01)
-    kelly        = edge / odds
-    safe_kelly   = min(kelly * kelly_fraction, max_pct)
-    capital      = portfolio * max(safe_kelly, 0.005)
-
-    price_dollars  = order_price / 100
-    desired        = round(capital / price_dollars)
-    max_affordable = int(available_cash / price_dollars)
-
-    if max_affordable < 1:
-        return 0                          # can't afford even 1 contract — hard stop
-
-    return max(min(desired, max_affordable), 1)   # at least 1, but only if affordable
+trade_logger = logging.getLogger("trades")
 
 
 class BondingStrategy(BaseStrategy):
@@ -58,15 +41,13 @@ class BondingStrategy(BaseStrategy):
         return not is_illiquid(prices) and (getattr(market, "volume", 0) or 0) > 0
 
     def _check_buying_opportunity(self, ticker: str, prices: MarketPrices):
-        markets = self.trader.get_markets(tickers=[ticker])
-        if not markets:
+        market = self.monitored_markets.get(ticker)
+        if not market:
             return
-        market = markets[0]
-
         for side in ["yes", "no"]:
             if self._should_buy(ticker, side, prices, market):
                 self._execute_buy(ticker, side, prices)
-                break  # one side per ticker only
+                break
 
     def _should_buy(self, ticker: str, side: str, prices: MarketPrices, market) -> bool:
         if ticker in self.held_positions:
@@ -85,9 +66,9 @@ class BondingStrategy(BaseStrategy):
         if last_attempt and (now - last_attempt).total_seconds() < 10:
             return
 
-        bid, _  = prices.for_side(side)
-        maker   = self.config.get("order_at_bid", False)
-        order_price = max(bid, 1) if maker else min(bid + 1, 99)
+        bid, ask    = prices.for_side(side)
+        maker       = self.config.get("order_at_bid", False)
+        order_price = min(bid, 99) if maker else min(bid + 1, 99)
 
         balance         = self.trader.get_balance()
         total_portfolio = balance["balance"] + balance["portfolio_value"]
@@ -134,7 +115,7 @@ class BondingStrategy(BaseStrategy):
             }
             self.monitored_markets.pop(ticker, None)
             self.buy_attempts.pop(ticker, None)
-            logger.info(
+            trade_logger.info(
                 f"[Bonding] BUY {contracts} {side} @ {order_price}¢ on {ticker} | "
                 f"cost=${total_cost:.2f} "
                 f"fee=${expected_fee:.4f}({'maker' if maker else 'taker'}) "
@@ -145,6 +126,10 @@ class BondingStrategy(BaseStrategy):
             logger.error(f"[Bonding] Buy failed for {ticker}: {e}")
 
     def _check_exit_conditions(self, ticker: str, prices: MarketPrices):
+        # Ignore settled/closed markets (bid=0, ask=100 means no liquidity)
+        if is_illiquid(prices):
+            return
+        
         position    = self.held_positions[ticker]
         side        = position["side"]
         bid, ask    = prices.for_side(side)

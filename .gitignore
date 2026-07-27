@@ -5,6 +5,7 @@ private_key.pem
 *.key
 
 # Log files
+logs/
 *.log
 bot_errors.log*
 bot_debug.log*
