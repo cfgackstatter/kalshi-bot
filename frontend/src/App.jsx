@@ -33,32 +33,100 @@ const GENERAL_PARAMS = [
   { key: 'estimated_edge',          label: 'Estimated Edge %',       type: 'number', step: 0.1, scale: 0.01 },
   { key: 'kelly_fraction',          label: 'Kelly Fraction %',       type: 'number', step: 1,   scale: 0.01 },
   { key: 'max_position_pct',        label: 'Max Position %',         type: 'number', step: 1,   scale: 0.01 },
-  { key: 'max_loss_percent',        label: 'Max Loss %',             type: 'number', step: 1,   scale: 0.01 },
+]
+
+const COMBINED_GENERAL_PARAMS = [
+  { key: 'scan_frequency',          label: 'Scan Frequency (min)',   type: 'number', step: 1 },
+  { key: 'max_pending_age_minutes', label: 'Max Pending Age (min)',  type: 'number', step: 1 },
+  { key: 'prefer_mode',             label: 'Allocation Mode',        type: 'select',
+    options: [
+      { value: 'score', label: 'Best score (¢/hr)' },
+      { value: 'momentum_first', label: 'Momentum first' },
+      { value: 'bonding_first', label: 'Bonding first' },
+    ]},
+  { key: 'score_hysteresis',        label: 'Score Hysteresis',       type: 'number', step: 0.05 },
+  { key: 'max_open_positions',      label: 'Max Open Positions',     type: 'number', step: 1 },
+  { key: 'max_positions_per_series', label: 'Max Positions / Series', type: 'number', step: 1 },
+  { key: 'kelly_fraction',          label: 'Kelly Fraction %',       type: 'number', step: 1, scale: 0.01 },
+  { key: 'max_position_pct',        label: 'Max Position %',         type: 'number', step: 1, scale: 0.01 },
+  { key: 'order_at_bid',            label: 'Order at Bid (maker)',   type: 'boolean' },
+  { key: 'rebuy_cooldown_seconds',  label: 'Rebuy Cooldown (sec)',   type: 'number', step: 30 },
+  { key: 'ticker_exclude_substrings', label: 'Exclude Tickers (csv)', type: 'text' },
 ]
 
 const STRATEGY_PARAMS = {
   bonding: [
-    { key: 'min_probability',           label: 'Min Probability (¢)',       type: 'number', step: 1    },
-    { key: 'max_time_to_expiry',        label: 'Max Time to Expiry (hrs)',  type: 'number', step: 0.05 },
+    { key: 'min_probability',           label: 'Min Ask (¢)',               type: 'number', step: 1    },
+    { key: 'max_time_to_expiry',        label: 'Max Time to Expiry (hrs)',  type: 'number', step: 0.01 },
     { key: 'max_spread',                label: 'Max Spread (¢)',            type: 'number', step: 1    },
     { key: 'min_volume',                label: 'Min Volume',                type: 'number', step: 1    },
+    { key: 'stability_seconds',         label: 'Ask Stability (sec)',       type: 'number', step: 15   },
+    { key: 'min_net_if_win_cents',      label: 'Min Net if Win (¢)',        type: 'number', step: 1    },
+    { key: 'max_open_positions',        label: 'Max Open Positions',        type: 'number', step: 1    },
+    { key: 'max_positions_per_series',  label: 'Max Positions / Series',    type: 'number', step: 1    },
+    { key: 'rebuy_cooldown_seconds',    label: 'Rebuy Cooldown (sec)',      type: 'number', step: 30   },
+    { key: 'hold_to_settlement',        label: 'Hold to Settlement',        type: 'boolean'            },
+    { key: 'thesis_break_mid',          label: 'Thesis Break Mid (¢)',      type: 'number', step: 1    },
+    { key: 'maker_min_minutes_to_expiry', label: 'Maker if ≥ Min Left',   type: 'number', step: 1    },
     { key: 'ticker_exclude_substrings', label: 'Exclude Tickers (csv)',     type: 'text'               },
   ],
   momentum: [
     { key: 'momentum_window_minutes', label: 'Momentum Window (min)',  type: 'number', step: 1   },
-    { key: 'min_slope_cents_per_min', label: 'Min Slope ¢/min',        type: 'number', step: 0.5 },
+    { key: 'recent_window_seconds',   label: 'Recent Slope Window (s)', type: 'number', step: 15 },
+    { key: 'min_slope_cents_per_min',  label: 'Min Slope ¢/min',        type: 'number', step: 0.5 },
     { key: 'momentum_tstat_threshold', label: 'Momentum t-stat',       type: 'number', step: 0.1 },
     { key: 'min_upside_cents',        label: 'Min Upside (¢)',         type: 'number', step: 1   },
     { key: 'min_upside_ratio',        label: 'Min Upside Ratio (%)',   type: 'number', step: 1, scale: 0.01 },
+    { key: 'max_entry_mid',           label: 'Max Entry Mid (¢)',      type: 'number', step: 1   },
+    { key: 'min_entry_price_cents',   label: 'Min Entry Price (¢)',    type: 'number', step: 1   },
+    { key: 'max_entry_price_cents',   label: 'Max Entry Price (¢)',    type: 'number', step: 1   },
     { key: 'take_profit_cents',       label: 'Take Profit (¢)',        type: 'number', step: 1   },
     { key: 'stop_loss_cents',         label: 'Stop Loss (¢)',          type: 'number', step: 1   },
     { key: 'max_hold_minutes',        label: 'Max Hold (min)',         type: 'number', step: 5   },
+    { key: 'exit_on_flip',            label: 'Exit on Momentum Flip',  type: 'boolean'           },
+    { key: 'flip_tstat_threshold',    label: 'Flip t-stat',            type: 'number', step: 0.1 },
+    { key: 'min_hold_seconds_before_flip', label: 'Min Hold Before Flip (s)', type: 'number', step: 30 },
+    { key: 'max_open_positions',      label: 'Max Open Positions',     type: 'number', step: 1   },
+    { key: 'max_positions_per_series', label: 'Max Positions / Series', type: 'number', step: 1  },
+    { key: 'rebuy_cooldown_seconds',  label: 'Rebuy Cooldown (sec)',   type: 'number', step: 30  },
     { key: 'min_time_to_expiry',      label: 'Min Time to Expiry (hr)',type: 'number', step: 0.25},
     { key: 'max_time_to_expiry',      label: 'Max Time to Expiry (hr)',type: 'number', step: 0.25},
     { key: 'max_spread',              label: 'Max Spread (¢)',         type: 'number', step: 1   },
     { key: 'min_volume',              label: 'Min Volume',             type: 'number', step: 10  },
     { key: 'ticker_exclude_substrings', label: 'Exclude Tickers (csv)', type: 'text'             },
-    { key: 'min_contract_price_cents', label: 'Min Contract Price ¢',  type: 'number', step: 1   },
+  ],
+  // Nested under config.bonding / config.momentum (shared risk is COMBINED_GENERAL)
+  combinedBonding: [
+    { key: 'min_probability',           label: 'Min Ask (¢)',               type: 'number', step: 1    },
+    { key: 'max_time_to_expiry',        label: 'Max Time to Expiry (hrs)',  type: 'number', step: 0.01 },
+    { key: 'max_spread',                label: 'Max Spread (¢)',            type: 'number', step: 1    },
+    { key: 'min_volume',                label: 'Min Volume',                type: 'number', step: 1    },
+    { key: 'stability_seconds',         label: 'Ask Stability (sec)',       type: 'number', step: 15   },
+    { key: 'min_net_if_win_cents',      label: 'Min Net if Win (¢)',        type: 'number', step: 1    },
+    { key: 'estimated_edge',            label: 'Estimated Edge %',          type: 'number', step: 0.1, scale: 0.01 },
+    { key: 'hold_to_settlement',        label: 'Hold to Settlement',        type: 'boolean'            },
+    { key: 'thesis_break_mid',          label: 'Thesis Break Mid (¢)',      type: 'number', step: 1    },
+    { key: 'maker_min_minutes_to_expiry', label: 'Maker if ≥ Min Left',   type: 'number', step: 1    },
+  ],
+  combinedMomentum: [
+    { key: 'momentum_window_minutes', label: 'Momentum Window (min)',  type: 'number', step: 1   },
+    { key: 'recent_window_seconds',   label: 'Recent Slope Window (s)', type: 'number', step: 15 },
+    { key: 'min_slope_cents_per_min',  label: 'Min Slope ¢/min',        type: 'number', step: 0.5 },
+    { key: 'momentum_tstat_threshold', label: 'Momentum t-stat',       type: 'number', step: 0.1 },
+    { key: 'estimated_edge',          label: 'Base Edge %',            type: 'number', step: 0.1, scale: 0.01 },
+    { key: 'min_upside_cents',        label: 'Min Upside (¢)',         type: 'number', step: 1   },
+    { key: 'max_entry_mid',           label: 'Max Entry Mid (¢)',      type: 'number', step: 1   },
+    { key: 'min_entry_price_cents',   label: 'Min Entry Price (¢)',    type: 'number', step: 1   },
+    { key: 'max_entry_price_cents',   label: 'Max Entry Price (¢)',    type: 'number', step: 1   },
+    { key: 'take_profit_cents',       label: 'Take Profit (¢)',        type: 'number', step: 1   },
+    { key: 'stop_loss_cents',         label: 'Stop Loss (¢)',          type: 'number', step: 1   },
+    { key: 'max_hold_minutes',        label: 'Max Hold (min)',         type: 'number', step: 5   },
+    { key: 'exit_on_flip',            label: 'Exit on Momentum Flip',  type: 'boolean'           },
+    { key: 'min_hold_seconds_before_flip', label: 'Min Hold Before Flip (s)', type: 'number', step: 30 },
+    { key: 'min_time_to_expiry',      label: 'Min Time to Expiry (hr)',type: 'number', step: 0.25},
+    { key: 'max_time_to_expiry',      label: 'Max Time to Expiry (hr)',type: 'number', step: 0.25},
+    { key: 'max_spread',              label: 'Max Spread (¢)',         type: 'number', step: 1   },
+    { key: 'min_volume',              label: 'Min Volume',             type: 'number', step: 10  },
   ],
 }
 
@@ -85,6 +153,17 @@ const ParamField = ({ def, value, onChange }) => {
     </div>
   )
 
+  if (def.type === 'select') return (
+    <div className="param-row">
+      <label>{def.label}</label>
+      <select value={value ?? def.options?.[0]?.value} onChange={e => onChange(def.key, e.target.value)}>
+        {(def.options || []).map(o => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+    </div>
+  )
+
   return (
     <div className="param-row">
       <label>{def.label}</label>
@@ -103,6 +182,9 @@ const ParamField = ({ def, value, onChange }) => {
 const StrategyPanel = ({ running, configs, activeStrategy, onStrategyChange, onConfigChange, onStart, onStop }) => {
   const [open, setOpen] = useState(false)
   const config = configs[activeStrategy]
+  if (!config) return null
+
+  const isCombined = activeStrategy === 'combined'
 
   return (
     <div className="strategy-panel">
@@ -118,6 +200,7 @@ const StrategyPanel = ({ running, configs, activeStrategy, onStrategyChange, onC
         >
           <option value="bonding">Bonding</option>
           <option value="momentum">Momentum</option>
+          <option value="combined">Combined</option>
         </select>
 
         <span className={`status-dot ${running ? 'running' : 'stopped'}`}>
@@ -139,20 +222,39 @@ const StrategyPanel = ({ running, configs, activeStrategy, onStrategyChange, onC
         <div className="params-grid">
 
           <div className="params-section">
-            <h4>General</h4>
-            {GENERAL_PARAMS.map(def => (
+            <h4>{isCombined ? 'Allocation & Risk' : 'General'}</h4>
+            {(isCombined ? COMBINED_GENERAL_PARAMS : GENERAL_PARAMS).map(def => (
               <ParamField key={def.key} def={def} value={config[def.key]}
                 onChange={(k, v) => onConfigChange(activeStrategy, k, v)} />
             ))}
           </div>
 
-          <div className="params-section">
-            <h4>{activeStrategy.charAt(0).toUpperCase() + activeStrategy.slice(1)}</h4>
-            {STRATEGY_PARAMS[activeStrategy].map(def => (
-              <ParamField key={def.key} def={def} value={config[def.key]}
-                onChange={(k, v) => onConfigChange(activeStrategy, k, v)} />
-            ))}
-          </div>
+          {isCombined ? (
+            <>
+              <div className="params-section">
+                <h4>Bonding Leg</h4>
+                {STRATEGY_PARAMS.combinedBonding.map(def => (
+                  <ParamField key={def.key} def={def} value={config.bonding?.[def.key]}
+                    onChange={(k, v) => onConfigChange(activeStrategy, k, v, 'bonding')} />
+                ))}
+              </div>
+              <div className="params-section">
+                <h4>Momentum Leg</h4>
+                {STRATEGY_PARAMS.combinedMomentum.map(def => (
+                  <ParamField key={def.key} def={def} value={config.momentum?.[def.key]}
+                    onChange={(k, v) => onConfigChange(activeStrategy, k, v, 'momentum')} />
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="params-section">
+              <h4>{activeStrategy.charAt(0).toUpperCase() + activeStrategy.slice(1)}</h4>
+              {STRATEGY_PARAMS[activeStrategy].map(def => (
+                <ParamField key={def.key} def={def} value={config[def.key]}
+                  onChange={(k, v) => onConfigChange(activeStrategy, k, v)} />
+              ))}
+            </div>
+          )}
 
         </div>
       )}
@@ -165,7 +267,7 @@ const StrategyPanel = ({ running, configs, activeStrategy, onStrategyChange, onC
 export default function App() {
   // Strategy state
   const [activeStrategy, setActiveStrategy] = useState('bonding')
-  const [configs, setConfigs]               = useState({ bonding: null, momentum: null })
+  const [configs, setConfigs]               = useState({ bonding: null, momentum: null, combined: null })
   const [running, setRunning]               = useState(false)
 
   // Data state
@@ -176,9 +278,23 @@ export default function App() {
 
   // UI state
   const [activeTab, setActiveTab]   = useState('markets')
-  const [marketFilter, setMarketFilter] = useState('all')
+  // Empty set = show all; otherwise AND together active filters
+  const [marketFilters, setMarketFilters] = useState(new Set())
   const [tradeModal, setTradeModal] = useState(null)
   const [closeModal, setCloseModal] = useState(null)
+
+  const toggleMarketFilter = (val) => {
+    if (val === 'all') {
+      setMarketFilters(new Set())
+      return
+    }
+    setMarketFilters(prev => {
+      const next = new Set(prev)
+      if (next.has(val)) next.delete(val)
+      else next.add(val)
+      return next
+    })
+  }
 
   // ── Data fetching ───────────────────────────────────────────────────────────
 
@@ -204,13 +320,15 @@ export default function App() {
       axios.get(`${API}/strategy/config`),
       axios.get(`${API}/strategy/defaults/bonding`),
       axios.get(`${API}/strategy/defaults/momentum`),
-    ]).then(([cfg, bond, mom]) => {
+      axios.get(`${API}/strategy/defaults/combined`),
+    ]).then(([cfg, bond, mom, comb]) => {
       const active = cfg.data.strategy_type || 'bonding'
       setActiveStrategy(active)
       setRunning(cfg.data.enabled || false)
       setConfigs({
         bonding:  active === 'bonding'  ? cfg.data : bond.data,
         momentum: active === 'momentum' ? cfg.data : mom.data,
+        combined: active === 'combined' ? cfg.data : comb.data,
       })
     }).catch(e => console.error('Init error:', e))
 
@@ -226,9 +344,12 @@ export default function App() {
     // Don't send to backend yet — user must click Start
   }
 
-  const handleConfigChange = (strategyType, key, value) => {
-    const updatedConfig = { ...configs[strategyType], [key]: value }
-    setConfigs(prev => ({ ...prev, [strategyType]: updatedConfig }))
+  const handleConfigChange = (strategyType, key, value, nest = null) => {
+    const prev = configs[strategyType] || {}
+    const updatedConfig = nest
+      ? { ...prev, [nest]: { ...(prev[nest] || {}), [key]: value } }
+      : { ...prev, [key]: value }
+    setConfigs(prevConfigs => ({ ...prevConfigs, [strategyType]: updatedConfig }))
     if (running) {
       // Never send enabled or strategy_type — those are controlled by start/stop only
       const { enabled, strategy_type, ...safeConfig } = updatedConfig
@@ -278,10 +399,10 @@ export default function App() {
   // ── Filtered markets ────────────────────────────────────────────────────────
 
   const filteredMarkets = markets.filter(m => {
-    if (marketFilter === 'all')  return true
-    if (marketFilter === 'high') return Math.max(m.yes_bid, m.no_bid) >= 90
-    if (marketFilter === 'soon') return m.total_seconds_left < 15 * 60
-    if (marketFilter === 'volume') return m.volume >= 1000
+    if (marketFilters.size === 0) return true
+    if (marketFilters.has('high')   && Math.max(m.yes_bid, m.no_bid) < 90) return false
+    if (marketFilters.has('soon')   && m.total_seconds_left >= 15 * 60)    return false
+    if (marketFilters.has('volume') && m.volume < 1000)                   return false
     return true
   })
 
@@ -337,7 +458,11 @@ export default function App() {
               ['soon',   'Expiring <15min'],
               ['volume', 'High Volume'],
             ].map(([val, label]) => (
-              <FilterBtn key={val} active={marketFilter === val} onClick={() => setMarketFilter(val)}>
+              <FilterBtn
+                key={val}
+                active={val === 'all' ? marketFilters.size === 0 : marketFilters.has(val)}
+                onClick={() => toggleMarketFilter(val)}
+              >
                 {label}
               </FilterBtn>
             ))}

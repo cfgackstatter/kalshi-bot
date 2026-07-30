@@ -5,30 +5,17 @@ Automated trading bot for Kalshi prediction markets with real-time WebSocket pri
 ## Features
 
 - **Real-time monitoring** via Kalshi WebSocket API
-- **Automated trading strategy** for high-probability short-term markets
+- **Automated trading strategies** (bonding + momentum) with configurable parameters
 - **Stop-loss protection** with configurable thresholds
 - **Web dashboard** for portfolio management and manual trading
 - **Resilient error handling** with retry logic and logging
 
 ## Quick Start
 
-### Backend
+### One-time setup
 ```bash
-cd backend
-source venv/bin/activate  # or `venv\Scripts\activate` on Windows
-python -m uvicorn main:app --reload --port 8000
+make install
 ```
-
-### Frontend
-```bash
-cd frontend
-npm install  # first time only
-npm run dev
-```
-
-Access the dashboard at `http://localhost:3000`
-
-## Configuration
 
 Create `backend/.env`:
 ```text
@@ -37,20 +24,38 @@ KALSHI_PRIVATE_KEY_PATH=path/to/private_key.pem
 KALSHI_BASE_URL=https://api.elections.kalshi.com
 ```
 
-Adjust strategy parameters in the dashboard or via API.
+### Run (backend + frontend)
+```bash
+make
+```
+
+This starts the API on `:8000` and the dashboard on `:3000`. Ctrl+C stops both.
+
+Or run them separately:
+```bash
+make backend    # FastAPI — http://localhost:8000
+make frontend   # Vite    — http://localhost:3000
+```
+
+Access the dashboard at `http://localhost:3000`
+
+## Configuration
+
+Adjust strategy parameters in the dashboard or via API. Defaults live in `backend/config/defaults.py`.
 
 ## Project Structure
 
 ```text
 backend/
-├── main.py              # FastAPI server & endpoints
-├── strategy.py          # Trading strategy logic
-├── kalshi_client.py     # Kalshi API wrapper
-├── websocket_client.py  # Real-time price feed
-└── utils.py             # Helpers & retry logic
+├── main.py                 # FastAPI server & endpoints
+├── config/                 # Strategy default configs
+├── strategies/             # Bonding & momentum strategies
+├── kalshi_client.py        # Kalshi API wrapper
+├── websocket_client.py     # Real-time price feed
+└── market_utils.py         # Pricing & position helpers
 
 frontend/
 ├── src/
-│   ├── App.jsx          # Main dashboard
-│   └── App.css          # Styling
+│   ├── App.jsx             # Main dashboard
+│   └── App.css             # Styling
 ```

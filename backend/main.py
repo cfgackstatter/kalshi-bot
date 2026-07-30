@@ -10,9 +10,10 @@ from pydantic import BaseModel
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from kalshi_client import KalshiTrader
 from websocket_client import KalshiWebSocket
-from market_utils import market_time_info, format_position, is_illiquid, MarketPrices
+from market_utils import market_time_info, format_position, is_illiquid, MarketPrices, market_volume, market_open_interest
 from strategies.bonding_strategy import BondingStrategy
 from strategies.momentum_strategy import MomentumStrategy, momentum_signal
+from strategies.combined_strategy import CombinedStrategy
 from config.defaults import STRATEGY_DEFAULTS, BONDING_DEFAULTS
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -40,7 +41,11 @@ logging.getLogger("httpx").propagate = False
 logger = logging.getLogger(__name__)
 
 # ── App state ─────────────────────────────────────────────────────────────────
-STRATEGY_CLASSES = {"bonding": BondingStrategy, "momentum": MomentumStrategy}
+STRATEGY_CLASSES = {
+    "bonding":  BondingStrategy,
+    "momentum": MomentumStrategy,
+    "combined": CombinedStrategy,
+}
 
 trader          = KalshiTrader()
 scheduler       = AsyncIOScheduler()
@@ -75,6 +80,42 @@ class CancelRequest(BaseModel):
     order_id: str
 
 # ── Market data endpoints ─────────────────────────────────────────────────────
+def _order_count(order, field: str) -> float:
+    """Prefer *_fp string fields; fall back to legacy ints."""
+    fp = getattr(order, f"{field}_fp", None)
+    if fp is not None:
+        try:
+            return float(fp)
+        except (TypeError, ValueError):
+            pass
+    return float(getattr(order, field, 0) or 0)
+
+def _order_price_cents(order) -> int:
+    """Normalize resting-order price to integer cents for the dashboard."""
+    outcome = getattr(order, "outcome_side", None) or getattr(order, "side", "")
+    # Prefer the dollar price for the outcome we care about
+    preferred = []
+    if outcome == "yes":
+        preferred = ["yes_price_dollars", "price_dollars", "yes_price", "price"]
+    elif outcome == "no":
+        preferred = ["no_price_dollars", "price_dollars", "no_price", "price"]
+    else:
+        preferred = ["yes_price_dollars", "no_price_dollars", "price_dollars",
+                     "yes_price", "no_price", "price"]
+
+    for key in preferred:
+        val = getattr(order, key, None)
+        if val is None:
+            continue
+        try:
+            f = float(val)
+            if isinstance(val, str) or f <= 1.0:
+                return int(round(f * 100))
+            return int(f)
+        except (TypeError, ValueError):
+            continue
+    return 0
+
 @app.get("/api/balance")
 def get_balance():
     try:
@@ -98,8 +139,8 @@ def get_markets():
                 "subtitle":      getattr(m, "subtitle", ""),
                 "yes_sub_title": getattr(m, "yes_sub_title", ""),
                 "no_sub_title":  getattr(m, "no_sub_title", ""),
-                "volume":        getattr(m, "volume", 0) or 0,
-                "open_interest": getattr(m, "open_interest", 0) or 0,
+                "volume":        market_volume(m),
+                "open_interest": market_open_interest(m),
                 **market_time_info(m, now),
             })
         result.sort(key=lambda m: m["total_seconds_left"])
@@ -113,14 +154,15 @@ def get_orders():
     try:
         orders = trader.get_orders(status="resting") or []
         return {"orders": [{
-            "order_id":       o.order_id,
-            "ticker":         o.ticker,
-            "side":           o.side,
-            "action":         o.action,
-            "price":          getattr(o, f"{o.side}_price", 0),
-            "remaining_count": o.remaining_count,
-            "initial_count":  o.initial_count,
-            "created_time":   o.created_time,
+            "order_id":        o.order_id,
+            "ticker":          o.ticker,
+            # outcome_side is yes/no; side/book_side may be bid/ask on V2
+            "side":            getattr(o, "outcome_side", None) or getattr(o, "side", ""),
+            "action":          getattr(o, "action", ""),
+            "price":           _order_price_cents(o),
+            "remaining_count": _order_count(o, "remaining_count"),
+            "initial_count":   _order_count(o, "initial_count"),
+            "created_time":    getattr(o, "created_time", None) or getattr(o, "created_ts", None),
         } for o in orders], "count": len(orders)}
     except Exception as e:
         logger.error(f"Orders error: {e}")
@@ -187,8 +229,12 @@ async def start_strategy():
         strategy = cls(trader, strategy_config)
         if isinstance(strategy, MomentumStrategy):
             strategy.price_history.clear()
+        elif isinstance(strategy, CombinedStrategy):
+            strategy.momentum.price_history.clear()
     else:
         strategy.config = strategy_config
+        if isinstance(strategy, CombinedStrategy):
+            strategy._sync_leg_configs()
         # Do NOT clear price_history — preserve momentum window
 
     if scheduler.get_job("scan"):
@@ -216,6 +262,8 @@ def get_config():
 async def update_config(config: dict):
     strategy_config.update(config)
     strategy.config = strategy_config
+    if isinstance(strategy, CombinedStrategy):
+        strategy._sync_leg_configs()
     if strategy_config.get("enabled") and scheduler.get_job("scan"):
         scheduler.reschedule_job("scan", trigger="interval", minutes=strategy_config["scan_frequency"])
     return {"success": True, "config": strategy_config}
@@ -241,27 +289,37 @@ async def scan_and_subscribe():
         eligible = list(strategy.monitored_markets.keys())
 
     all_tickers = list(set(eligible + list(strategy.held_positions.keys())))
-    if not (ws_client and all_tickers):
+    if not ws_client:
+        return
+    if not all_tickers:
+        # Nothing to watch — leave any existing socket alone
         return
     try:
-        # Cancel previous listen task before reconnecting
-        if _listen_task and not _listen_task.done():
-            _listen_task.cancel()
-            try:
-                await _listen_task
-            except asyncio.CancelledError:
-                pass
+        need_listen = _listen_task is None or _listen_task.done()
+        if need_listen and ws_client.connected:
+            # Listen loop died but socket weirdly open — reset
+            await ws_client.close()
 
-        if ws_client.ws:
-            await ws_client.ws.close()
-            ws_client.ws = None
-        await asyncio.sleep(0.5)
-        await ws_client.connect()
-        _listen_task = asyncio.create_task(ws_client.listen())
-        await ws_client.subscribe_tickers(all_tickers)
+        await ws_client.ensure_subscriptions(all_tickers)
+
+        if need_listen or (_listen_task is not None and _listen_task.done()):
+            if _listen_task and not _listen_task.done():
+                _listen_task.cancel()
+                try:
+                    await _listen_task
+                except asyncio.CancelledError:
+                    pass
+            _listen_task = asyncio.create_task(ws_client.listen())
+
         logger.info(f"Monitoring {len(all_tickers)} tickers ({len(strategy.held_positions)} positions)")
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
+        # Force clean reconnect next scan
+        try:
+            await ws_client.close()
+        except Exception:
+            pass
+        _listen_task = None
 
 # ── Debugging endpoint ─────────────────────────────────────────────────────────
 @app.get("/api/debug/momentum")
